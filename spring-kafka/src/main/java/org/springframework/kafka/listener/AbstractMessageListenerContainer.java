@@ -70,10 +70,12 @@ import org.springframework.util.StringUtils;
  * @author Tomaz Fernandes
  * @author Wang Zhiyang
  * @author Soby Chacko
+ * @author Sanghyeok An
+ * @author Lokesh Alamuri
  */
 public abstract class AbstractMessageListenerContainer<K, V>
 		implements GenericMessageListenerContainer<K, V>, BeanNameAware, ApplicationEventPublisherAware,
-			ApplicationContextAware {
+		ApplicationContextAware {
 
 	/**
 	 * The default {@link org.springframework.context.SmartLifecycle} phase for listener
@@ -124,6 +126,8 @@ public abstract class AbstractMessageListenerContainer<K, V>
 
 	private volatile boolean running = false;
 
+	private volatile boolean fenced = false;
+
 	private volatile boolean paused;
 
 	private volatile boolean stoppedNormally = true;
@@ -138,7 +142,6 @@ public abstract class AbstractMessageListenerContainer<K, V>
 
 	@Nullable
 	private KafkaAdmin kafkaAdmin;
-
 
 	/**
 	 * Construct an instance with the provided factory and properties.
@@ -273,6 +276,10 @@ public abstract class AbstractMessageListenerContainer<K, V>
 	@Override
 	public boolean isRunning() {
 		return this.running;
+	}
+
+	protected void setFenced(boolean fenced) {
+		this.fenced = fenced;
 	}
 
 	@Deprecated(since = "3.2", forRemoval = true)
@@ -509,6 +516,7 @@ public abstract class AbstractMessageListenerContainer<K, V>
 			if (!isRunning()) {
 				Assert.state(this.containerProperties.getMessageListener() instanceof GenericMessageListener,
 						() -> "A " + GenericMessageListener.class.getName() + " implementation must be provided");
+				Assert.state(!this.fenced, "Container Fenced. It is not allowed to start.");
 				doStart();
 			}
 		}
@@ -563,7 +571,7 @@ public abstract class AbstractMessageListenerContainer<K, V>
 			catch (Exception e) {
 				this.logger.error(e, "Failed to check topic existence");
 			}
-			if (missing != null && missing.size() > 0) {
+			if (missing != null && !missing.isEmpty()) {
 				throw new IllegalStateException(
 						"Topic(s) " + missing.toString()
 								+ " is/are not present and missingTopicsFatal is true");
@@ -600,27 +608,35 @@ public abstract class AbstractMessageListenerContainer<K, V>
 	 * @since 2.3.8
 	 */
 	public final void stop(boolean wait) {
-		this.lifecycleLock.lock();
-		try {
-			if (isRunning()) {
-				if (wait) {
-					final CountDownLatch latch = new CountDownLatch(1);
+		if (isRunning()) {
+			if (wait) {
+				final CountDownLatch latch = new CountDownLatch(1);
+				this.lifecycleLock.lock();
+				try {
+
 					doStop(latch::countDown);
-					try {
-						latch.await(this.containerProperties.getShutdownTimeout(), TimeUnit.MILLISECONDS); // NOSONAR
-						publishContainerStoppedEvent();
-					}
-					catch (@SuppressWarnings("unused") InterruptedException e) {
-						Thread.currentThread().interrupt();
-					}
 				}
-				else {
-					doStop(this::publishContainerStoppedEvent);
+				finally {
+					this.lifecycleLock.unlock();
+				}
+				try {
+					latch.await(this.containerProperties.getShutdownTimeout(), TimeUnit.MILLISECONDS); // NOSONAR
+					publishContainerStoppedEvent();
+				}
+				catch (@SuppressWarnings("unused") InterruptedException e) {
+					Thread.currentThread().interrupt();
 				}
 			}
-		}
-		finally {
-			this.lifecycleLock.unlock();
+			else {
+				this.lifecycleLock.lock();
+				try {
+					doStop(this::publishContainerStoppedEvent);
+				}
+				finally {
+					this.lifecycleLock.unlock();
+				}
+
+			}
 		}
 	}
 
@@ -652,8 +668,14 @@ public abstract class AbstractMessageListenerContainer<K, V>
 
 	@Override
 	public void stopAbnormally(Runnable callback) {
-		doStop(callback, false);
-		publishContainerStoppedEvent();
+		this.lifecycleLock.lock();
+		try {
+			doStop(callback, false);
+			publishContainerStoppedEvent();
+		}
+		finally {
+			this.lifecycleLock.unlock();
+		}
 	}
 
 	protected void doStop(Runnable callback) {
@@ -691,7 +713,7 @@ public abstract class AbstractMessageListenerContainer<K, V>
 			@Override
 			public void onPartitionsLost(Collection<TopicPartition> partitions) {
 				AbstractMessageListenerContainer.this.logger.info(() ->
-				getGroupId() + ": partitions lost: " + partitions);
+						getGroupId() + ": partitions lost: " + partitions);
 			}
 
 		};

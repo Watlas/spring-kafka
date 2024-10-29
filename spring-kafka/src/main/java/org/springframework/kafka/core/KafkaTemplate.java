@@ -33,6 +33,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import org.apache.commons.logging.LogFactory;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -80,9 +82,7 @@ import org.springframework.messaging.converter.SmartMessageConverter;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
-
-import io.micrometer.observation.Observation;
-import io.micrometer.observation.ObservationRegistry;
+import org.springframework.util.StringUtils;
 
 /**
  * A template for executing high-level operations. When used with a
@@ -102,6 +102,7 @@ import io.micrometer.observation.ObservationRegistry;
  * @author Thomas Strauß
  * @author Soby Chacko
  * @author Gurps Bassi
+ * @author Valentina Armenise
  */
 public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationContextAware, BeanNameAware,
 		ApplicationListener<ContextStoppedEvent>, DisposableBean, SmartInitializingSingleton {
@@ -483,15 +484,20 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 			if (this.kafkaAdmin == null) {
 				this.kafkaAdmin = this.applicationContext.getBeanProvider(KafkaAdmin.class).getIfUnique();
 				if (this.kafkaAdmin != null) {
-					Object producerServers = this.producerFactory.getConfigurationProperties()
-							.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG);
-					String adminServers = this.kafkaAdmin.getBootstrapServers();
+					String producerServers = this.producerFactory.getConfigurationProperties()
+							.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG).toString();
+					producerServers = removeLeadingAndTrailingBrackets(producerServers);
+					String adminServers = getAdminBootstrapAddress();
 					if (!producerServers.equals(adminServers)) {
 						Map<String, Object> props = new HashMap<>(this.kafkaAdmin.getConfigurationProperties());
 						props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, producerServers);
 						int opTo = this.kafkaAdmin.getOperationTimeout();
+						String clusterId = this.kafkaAdmin.getClusterId();
 						this.kafkaAdmin = new KafkaAdmin(props);
 						this.kafkaAdmin.setOperationTimeout(opTo);
+						if (clusterId != null && !clusterId.isEmpty()) {
+							this.kafkaAdmin.setClusterId(clusterId);
+						}
 					}
 				}
 			}
@@ -499,6 +505,19 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 		else if (this.micrometerEnabled) {
 			this.micrometerHolder = obtainMicrometerHolder();
 		}
+	}
+
+	private String getAdminBootstrapAddress() {
+		// Retrieve bootstrap servers from KafkaAdmin bootstrap supplier if available
+		String adminServers = this.kafkaAdmin.getBootstrapServers();
+		// Fallback to configuration properties if bootstrap servers are not set
+		if (adminServers == null) {
+			adminServers = this.kafkaAdmin.getConfigurationProperties().getOrDefault(
+					AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
+					""
+			).toString();
+		}
+		return removeLeadingAndTrailingBrackets(adminServers);
 	}
 
 	@Nullable
@@ -981,6 +1000,10 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 		if (this.producerInterceptor != null) {
 			this.producerInterceptor.close();
 		}
+	}
+
+	private static String removeLeadingAndTrailingBrackets(String str) {
+		return StringUtils.trimTrailingCharacter(StringUtils.trimLeadingCharacter(str, '['), ']');
 	}
 
 	@SuppressWarnings("serial")

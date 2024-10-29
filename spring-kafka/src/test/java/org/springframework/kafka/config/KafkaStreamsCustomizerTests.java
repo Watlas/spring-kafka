@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2023 the original author or authors.
+ * Copyright 2018-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,17 @@
 
 package org.springframework.kafka.config;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import io.micrometer.core.instrument.ImmutableTag;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.streams.KafkaClientSupplier;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
@@ -48,16 +49,18 @@ import org.springframework.kafka.annotation.KafkaStreamsDefaultConfiguration;
 import org.springframework.kafka.streams.KafkaStreamsMicrometerListener;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.context.EmbeddedKafka;
+import org.springframework.kafka.test.utils.KafkaTestUtils;
+import org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
-import io.micrometer.core.instrument.ImmutableTag;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Nurettin Yilmaz
  * @author Artem Bilan
+ * @author Almog Gavra
+ * @author Sanghyeok An
  *
  * @since 2.1.5
  */
@@ -88,13 +91,14 @@ public class KafkaStreamsCustomizerTests {
 		assertThat(STATE_LISTENER.getCurrentState()).isEqualTo(state);
 		Properties properties = configuration.asProperties();
 		assertThat(properties.get(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG))
-				.isEqualTo(Collections.singletonList(config.broker.getBrokersAsString()));
+				.isEqualTo(config.broker.getBrokersAsString());
 		assertThat(properties.get(StreamsConfig.DEFAULT_DESERIALIZATION_EXCEPTION_HANDLER_CLASS_CONFIG))
 				.isEqualTo(Foo.class);
 		assertThat(properties.get(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG))
 				.isEqualTo(1000);
 		assertThat(this.config.builderConfigured.get()).isTrue();
 		assertThat(this.config.topologyConfigured.get()).isTrue();
+		assertThat(this.config.ksInitialized.get()).isTrue();
 		assertThat(this.meterRegistry.get("kafka.consumer.coordinator.join.total")
 				.tag("customTag", "stream")
 				.tag("spring.id", KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_BUILDER_BEAN_NAME)
@@ -117,6 +121,8 @@ public class KafkaStreamsCustomizerTests {
 		final AtomicBoolean builderConfigured = new AtomicBoolean();
 
 		final AtomicBoolean topologyConfigured = new AtomicBoolean();
+
+		final AtomicBoolean ksInitialized = new AtomicBoolean();
 
 		@Autowired
 		EmbeddedKafkaBroker broker;
@@ -151,24 +157,42 @@ public class KafkaStreamsCustomizerTests {
 
 			});
 			streamsBuilderFactoryBean.addListener(new KafkaStreamsMicrometerListener(meterRegistry(),
-					Collections.singletonList(new ImmutableTag("customTag", "stream"))));
+					Collections.singletonList(new ImmutableTag("customTag", "stream")),
+					new SimpleAsyncTaskScheduler()));
 			return streamsBuilderFactoryBean;
 		}
 
 		@SuppressWarnings("deprecation")
 		@Bean(name = KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_CONFIG_BEAN_NAME)
 		public KafkaStreamsConfiguration kStreamsConfigs() {
-			Map<String, Object> props = new HashMap<>();
-			props.put(StreamsConfig.APPLICATION_ID_CONFIG, APPLICATION_ID);
-			props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG,
-					Collections.singletonList(this.broker.getBrokersAsString()));
+			Map<String, Object> props =
+					KafkaTestUtils.streamsProps(APPLICATION_ID, this.broker.getBrokersAsString());
 			props.put(StreamsConfig.DEFAULT_DESERIALIZATION_EXCEPTION_HANDLER_CLASS_CONFIG, Foo.class);
 			props.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, 1000);
 			return new KafkaStreamsConfiguration(props);
 		}
 
 		private KafkaStreamsCustomizer customizer() {
-			return kafkaStreams -> kafkaStreams.setStateListener(STATE_LISTENER);
+			return new KafkaStreamsCustomizer() {
+				@Override
+				public KafkaStreams initKafkaStreams(
+						final Topology topology,
+						final Properties properties,
+						final KafkaClientSupplier clientSupplier
+				) {
+					ksInitialized.set(true);
+					return KafkaStreamsCustomizer.super.initKafkaStreams(
+							topology,
+							properties,
+							clientSupplier
+					);
+				}
+
+				@Override
+				public void customize(final KafkaStreams kafkaStreams) {
+					kafkaStreams.setStateListener(STATE_LISTENER);
+				}
+			};
 		}
 
 		@Bean

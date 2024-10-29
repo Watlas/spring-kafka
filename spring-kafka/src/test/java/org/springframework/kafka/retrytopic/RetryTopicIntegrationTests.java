@@ -16,10 +16,6 @@
 
 package org.springframework.kafka.retrytopic;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
-import static org.awaitility.Awaitility.await;
-
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -76,6 +72,7 @@ import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.context.EmbeddedKafka;
+import org.springframework.kafka.test.utils.KafkaTestUtils;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.converter.CompositeMessageConverter;
 import org.springframework.messaging.converter.GenericMessageConverter;
@@ -84,16 +81,20 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import org.springframework.stereotype.Component;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
+import static org.awaitility.Awaitility.await;
 
 
 /**
  * @author Tomaz Fernandes
  * @author Gary Russell
  * @author Wang Zhiyang
+ * @author Sanghyeok An
  * @since 2.7
  */
 @SpringJUnitConfig
@@ -315,7 +316,6 @@ public class RetryTopicIntegrationTests {
 		}
 	}
 
-	@Component
 	static class FirstTopicListener {
 
 		@Autowired
@@ -335,7 +335,6 @@ public class RetryTopicIntegrationTests {
 
 	}
 
-	@Component
 	static class SecondTopicListener {
 
 		@Autowired
@@ -349,7 +348,6 @@ public class RetryTopicIntegrationTests {
 		}
 	}
 
-	@Component
 	static class ThirdTopicListener {
 
 		@Autowired
@@ -377,7 +375,6 @@ public class RetryTopicIntegrationTests {
 		}
 	}
 
-	@Component
 	static class FourthTopicListener {
 
 		@Autowired
@@ -465,7 +462,6 @@ public class RetryTopicIntegrationTests {
 
 	}
 
-	@Component
 	static class SixthTopicDefaultDLTListener {
 
 		@Autowired
@@ -484,7 +480,6 @@ public class RetryTopicIntegrationTests {
 
 	}
 
-	@Component
 	static class NoRetryTopicListener {
 
 		@Autowired
@@ -507,7 +502,6 @@ public class RetryTopicIntegrationTests {
 		}
 	}
 
-	@Component
 	static class FirstReuseRetryTopicListener {
 
 		final List<String> topics = Collections.synchronizedList(new ArrayList<>());
@@ -527,7 +521,6 @@ public class RetryTopicIntegrationTests {
 
 	}
 
-	@Component
 	static class SecondReuseRetryTopicListener {
 
 		final List<String> topics = Collections.synchronizedList(new ArrayList<>());
@@ -547,7 +540,6 @@ public class RetryTopicIntegrationTests {
 
 	}
 
-	@Component
 	static class ThirdReuseRetryTopicListener {
 
 		final List<String> topics = Collections.synchronizedList(new ArrayList<>());
@@ -567,7 +559,6 @@ public class RetryTopicIntegrationTests {
 
 	}
 
-	@Component
 	static class CountDownLatchContainer {
 
 		CountDownLatch countDownLatch1 = new CountDownLatch(5);
@@ -618,7 +609,6 @@ public class RetryTopicIntegrationTests {
 		}
 	}
 
-	@Component
 	static class MyCustomDltProcessor {
 
 		@Autowired
@@ -776,9 +766,7 @@ public class RetryTopicIntegrationTests {
 
 		@Bean
 		public ProducerFactory<String, String> producerFactory() {
-			Map<String, Object> configProps = new HashMap<>();
-			configProps.put(
-					ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+			Map<String, Object> configProps = KafkaTestUtils.producerProps(
 					this.broker.getBrokersAsString());
 			configProps.put(
 					ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
@@ -821,13 +809,8 @@ public class RetryTopicIntegrationTests {
 
 		@Bean
 		public ConsumerFactory<String, String> consumerFactory() {
-			Map<String, Object> props = new HashMap<>();
-			props.put(
-					ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
-					this.broker.getBrokersAsString());
-			props.put(
-					ConsumerConfig.GROUP_ID_CONFIG,
-					"groupId");
+			Map<String, Object> props = KafkaTestUtils.consumerProps(
+					this.broker.getBrokersAsString(), "groupId");
 			props.put(
 					ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
 					StringDeserializer.class);

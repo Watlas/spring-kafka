@@ -43,6 +43,8 @@ import org.springframework.util.PatternMatchUtils;
  *
  * @author Gary Russell
  * @author Artem Bilan
+ * @author Sanghyeok An
+ * @author Soby Chacko
  *
  * @since 2.1.3
  *
@@ -216,7 +218,7 @@ public abstract class AbstractKafkaHeaderMapper implements KafkaHeaderMapper {
 		if (this.outbound) {
 			return true;
 		}
-		if (this.matchers.size() == 0) {
+		if (this.matchers.isEmpty()) {
 			return true;
 		}
 		return doesMatch(header);
@@ -267,11 +269,11 @@ public abstract class AbstractKafkaHeaderMapper implements KafkaHeaderMapper {
 	 * @return the value to add.
 	 */
 	protected Object headerValueToAddIn(Header header) {
-		Object mapped = mapRawIn(header.key(), header.value());
-		if (mapped == null) {
-			mapped = header.value();
+		if (header == null || header.value() == null) {
+			return null;
 		}
-		return mapped;
+		String mapped = mapRawIn(header.key(), header.value());
+		return mapped != null ? mapped : header.value();
 	}
 
 	@Nullable

@@ -72,6 +72,9 @@ import org.springframework.util.StringUtils;
  * @author Artem Bilan
  * @author Chris Gilbert
  * @author Adrian Gygax
+ * @author Yaniv Nahoum
+ * @author Sanghyeok An
+ * @author Borahm Lee
  */
 public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 		implements ConsumerFactory<K, V>, BeanNameAware, ApplicationContextAware {
@@ -167,42 +170,8 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 
 		this.configs = new ConcurrentHashMap<>(configs);
 		this.configureDeserializers = configureDeserializers;
-		this.keyDeserializerSupplier = keyDeserializerSupplier(keyDeserializerSupplier);
-		this.valueDeserializerSupplier = valueDeserializerSupplier(valueDeserializerSupplier);
-	}
-
-	private Supplier<Deserializer<K>> keyDeserializerSupplier(
-			@Nullable Supplier<Deserializer<K>> keyDeserializerSupplier) {
-
-		if (!this.configureDeserializers) {
-			return keyDeserializerSupplier;
-		}
-		return keyDeserializerSupplier == null
-				? () -> null
-				: () -> {
-					Deserializer<K> deserializer = keyDeserializerSupplier.get();
-					if (deserializer != null) {
-						deserializer.configure(this.configs, true);
-					}
-					return deserializer;
-				};
-	}
-
-	private Supplier<Deserializer<V>> valueDeserializerSupplier(
-			@Nullable Supplier<Deserializer<V>> valueDeserializerSupplier) {
-
-		if (!this.configureDeserializers) {
-			return valueDeserializerSupplier;
-		}
-		return valueDeserializerSupplier == null
-				? () -> null
-				: () -> {
-					Deserializer<V> deserializer = valueDeserializerSupplier.get();
-					if (deserializer != null) {
-						deserializer.configure(this.configs, false);
-					}
-					return deserializer;
-				};
+		this.keyDeserializerSupplier = keyDeserializerSupplier;
+		this.valueDeserializerSupplier = valueDeserializerSupplier;
 	}
 
 	@Override
@@ -217,7 +186,7 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 	 * @param keyDeserializer the deserializer.
 	 */
 	public void setKeyDeserializer(@Nullable Deserializer<K> keyDeserializer) {
-		this.keyDeserializerSupplier = keyDeserializerSupplier(() -> keyDeserializer);
+		this.keyDeserializerSupplier = () -> keyDeserializer;
 	}
 
 	/**
@@ -227,7 +196,7 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 	 * @param valueDeserializer the value deserializer.
 	 */
 	public void setValueDeserializer(@Nullable Deserializer<V> valueDeserializer) {
-		this.valueDeserializerSupplier = valueDeserializerSupplier(() -> valueDeserializer);
+		this.valueDeserializerSupplier = () -> valueDeserializer;
 	}
 
 	/**
@@ -238,7 +207,7 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 	 * @since 2.8
 	 */
 	public void setKeyDeserializerSupplier(Supplier<Deserializer<K>> keyDeserializerSupplier) {
-		this.keyDeserializerSupplier = keyDeserializerSupplier(keyDeserializerSupplier);
+		this.keyDeserializerSupplier = keyDeserializerSupplier;
 	}
 
 	/**
@@ -249,12 +218,12 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 	 * @since 2.8
 	 */
 	public void setValueDeserializerSupplier(Supplier<Deserializer<V>> valueDeserializerSupplier) {
-		this.valueDeserializerSupplier = valueDeserializerSupplier(valueDeserializerSupplier);
+		this.valueDeserializerSupplier = valueDeserializerSupplier;
 	}
 
 	/**
 	 * Set to false (default true) to prevent programmatically provided deserializers (via
-	 * constructor or setters) from being configured using the producer configuration,
+	 * constructor or setters) from being configured using the consumer configuration,
 	 * e.g. if the deserializers are already fully configured.
 	 * @param configureDeserializers false to not configure.
 	 * @since 2.8.7
@@ -397,7 +366,7 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 		boolean shouldModifyClientId = (this.configs.containsKey(ConsumerConfig.CLIENT_ID_CONFIG)
 				&& StringUtils.hasText(clientIdSuffix)) || overrideClientIdPrefix;
 		if (groupId == null
-				&& (properties == null || properties.stringPropertyNames().size() == 0)
+				&& (properties == null || properties.stringPropertyNames().isEmpty())
 				&& !shouldModifyClientId) {
 			return createKafkaConsumer(new HashMap<>(this.configs));
 		}
@@ -497,14 +466,36 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 		this.applicationContext = applicationContext;
 	}
 
+	@Nullable
+	private Deserializer<K> keyDeserializer(Map<String, Object> configs) {
+		Deserializer<K> deserializer =
+				this.keyDeserializerSupplier != null
+						? this.keyDeserializerSupplier.get()
+						: null;
+		if (deserializer != null && this.configureDeserializers) {
+			deserializer.configure(configs, true);
+		}
+		return deserializer;
+	}
+
+	@Nullable
+	private Deserializer<V> valueDeserializer(Map<String, Object> configs) {
+		Deserializer<V> deserializer =
+				this.valueDeserializerSupplier != null
+						? this.valueDeserializerSupplier.get()
+						: null;
+		if (deserializer != null && this.configureDeserializers) {
+			deserializer.configure(configs, false);
+		}
+		return deserializer;
+	}
+
 	protected class ExtendedKafkaConsumer extends KafkaConsumer<K, V> {
 
 		private String idForListeners;
 
 		protected ExtendedKafkaConsumer(Map<String, Object> configProps) {
-			super(configProps,
-					DefaultKafkaConsumerFactory.this.keyDeserializerSupplier.get(),
-					DefaultKafkaConsumerFactory.this.valueDeserializerSupplier.get());
+			super(configProps, keyDeserializer(configProps), valueDeserializer(configProps));
 
 			if (!DefaultKafkaConsumerFactory.this.listeners.isEmpty()) {
 				Iterator<MetricName> metricIterator = metrics().keySet().iterator();
@@ -520,9 +511,18 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 		}
 
 		@Override
+		public void close() {
+			super.close();
+			notifyConsumerRemoved();
+		}
+
+		@Override
 		public void close(Duration timeout) {
 			super.close(timeout);
+			notifyConsumerRemoved();
+		}
 
+		private void notifyConsumerRemoved() {
 			for (Listener<K, V> listener : DefaultKafkaConsumerFactory.this.listeners) {
 				listener.consumerRemoved(this.idForListeners, this);
 			}

@@ -139,10 +139,11 @@ The following listing shows the definition of the `ProducerListener` interface:
 ----
 public interface ProducerListener<K, V> {
 
-    void onSuccess(ProducerRecord<K, V> producerRecord, RecordMetadata recordMetadata);
+    default void onSuccess(ProducerRecord<K, V> producerRecord, RecordMetadata recordMetadata) {
+	}
 
-    void onError(ProducerRecord<K, V> producerRecord, RecordMetadata recordMetadata,
-            Exception exception);
+    default void onError(ProducerRecord<K, V> producerRecord, RecordMetadata recordMetadata, Exception exception) {
+	}
 
 }
 ----
@@ -184,7 +185,7 @@ This section shows examples of sending messages to Kafka:
 public void sendToKafka(final MyOutputData data) {
     final ProducerRecord<String, String> record = createRecord(data);
 
-    CompletableFuture<SendResult<Integer, String>> future = template.send(record);
+    CompletableFuture<SendResult<String, String>> future = template.send(record);
     future.whenComplete((result, ex) -> {
         if (ex == null) {
             handleSuccess(data);
@@ -307,6 +308,7 @@ public KafkaTemplate<Integer, CustomValue> kafkaTemplate() {
 Starting with version 2.5.10, you can now update the producer properties after the factory is created.
 This might be useful, for example, if you have to update SSL key/trust store locations after a credentials change.
 The changes will not affect existing producer instances; call `reset()` to close any existing  producers so that new producers will be created using the new properties.
+
 NOTE: You cannot change a transactional producer factory to non-transactional, and vice-versa.
 
 Two new methods are now provided:
@@ -447,7 +449,7 @@ catch (InterruptedException e) {
     ...
 }
 catch (ExecutionException e) {
-    if (e.getCause instanceof MyException) {
+    if (e.getCause() instanceof MyException) {
         ...
     }
 }
@@ -649,6 +651,12 @@ public Message<?> messageReturn(String in) {
             .build();
 }
 ----
+
+=== Original Record Key in Reply
+
+Starting with version 3.3, the Kafka record key from the incoming request (if it exists) will be preserved in the reply record.
+This is only applicable for single record request/reply scenario.
+When the listener is batch or when the return type is a collection, it is up to the application to specify which keys to use by wrapping the reply record in a `Message` type.
 
 [[aggregating-request-reply]]
 == Aggregating Multiple Replies

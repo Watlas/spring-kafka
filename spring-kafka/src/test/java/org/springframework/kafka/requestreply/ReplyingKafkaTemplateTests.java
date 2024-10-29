@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2023 the original author or authors.
+ * Copyright 2018-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,6 @@
  */
 
 package org.springframework.kafka.requestreply;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.assertj.core.api.Assertions.fail;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -98,9 +89,19 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
 /**
  * @author Gary Russell
  * @author Nathan Xu
+ * @author Soby Chacko
  * @since 2.1.3
  *
  */
@@ -196,11 +197,12 @@ public class ReplyingKafkaTemplateTests {
 			template.setDefaultReplyTimeout(Duration.ofSeconds(30));
 			Headers headers = new RecordHeaders();
 			headers.add("baz", "buz".getBytes());
-			ProducerRecord<Integer, String> record = new ProducerRecord<>(A_REQUEST, null, null, null, "foo", headers);
+			ProducerRecord<Integer, String> record = new ProducerRecord<>(A_REQUEST, null, null, 1, "foo", headers);
 			RequestReplyFuture<Integer, String, String> future = template.sendAndReceive(record);
 			future.getSendFuture().get(10, TimeUnit.SECONDS); // send ok
 			ConsumerRecord<Integer, String> consumerRecord = future.get(30, TimeUnit.SECONDS);
 			assertThat(consumerRecord.value()).isEqualTo("FOO");
+			assertThat(consumerRecord.key()).isEqualTo(1);
 			Map<String, Object> receivedHeaders = new HashMap<>();
 			new DefaultKafkaHeaderMapper().toHeaders(consumerRecord.headers(), receivedHeaders);
 			assertThat(receivedHeaders).containsKey("baz");

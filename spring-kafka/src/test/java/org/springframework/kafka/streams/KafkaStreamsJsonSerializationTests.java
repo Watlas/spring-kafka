@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 the original author or authors.
+ * Copyright 2018-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,11 @@
 
 package org.springframework.kafka.streams;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -29,7 +28,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.streams.StreamsBuilder;
-import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.Printed;
@@ -57,12 +55,12 @@ import org.springframework.kafka.test.utils.KafkaTestUtils;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Elliot Kennedy
  * @author Artem Bilan
+ * @author Sanghyeok An
  */
 @SpringJUnitConfig
 @DirtiesContext
@@ -204,9 +202,7 @@ public class KafkaStreamsJsonSerializationTests {
 
 		@Bean(name = KafkaStreamsDefaultConfiguration.DEFAULT_STREAMS_CONFIG_BEAN_NAME)
 		public KafkaStreamsConfiguration kStreamsConfigs() {
-			Map<String, Object> props = new HashMap<>();
-			props.put(StreamsConfig.APPLICATION_ID_CONFIG, "testStreams");
-			props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, this.brokerAddresses);
+			Map<String, Object> props = KafkaTestUtils.streamsProps("testStreams", this.brokerAddresses);
 			return new KafkaStreamsConfiguration(props);
 		}
 

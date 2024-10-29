@@ -16,11 +16,16 @@
 
 package org.springframework.kafka.listener;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+import java.time.Duration;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
+import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +40,7 @@ import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.AbstractConsumerSeekAwareTests.Config.MultiGroupListener;
+import org.springframework.kafka.listener.ConsumerSeekAware.ConsumerSeekCallback;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.kafka.test.utils.KafkaTestUtils;
@@ -42,13 +48,19 @@ import org.springframework.stereotype.Component;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
 /**
  * @author Borahm Lee
+ * @author Artem Bilan
  * @since 3.3
  */
 @DirtiesContext
 @SpringJUnitConfig
-@EmbeddedKafka(topics = {AbstractConsumerSeekAwareTests.TOPIC}, partitions = 3)
+@EmbeddedKafka(topics = {AbstractConsumerSeekAwareTests.TOPIC},
+		partitions = 9,
+		brokerProperties = "group.initial.rebalance.delay.ms:4000")
 class AbstractConsumerSeekAwareTests {
 
 	static final String TOPIC = "Seek";
@@ -63,33 +75,60 @@ class AbstractConsumerSeekAwareTests {
 	MultiGroupListener multiGroupListener;
 
 	@Test
+	public void checkCallbacksAndTopicPartitions() {
+		await().timeout(Duration.ofSeconds(15))
+				.untilAsserted(() -> {
+					Map<ConsumerSeekCallback, List<TopicPartition>> callbacksAndTopics =
+							multiGroupListener.getCallbacksAndTopics();
+					Set<ConsumerSeekCallback> registeredCallbacks = callbacksAndTopics.keySet();
+					Set<TopicPartition> registeredTopicPartitions =
+							callbacksAndTopics.values()
+									.stream()
+									.flatMap(Collection::stream)
+									.collect(Collectors.toSet());
+
+					Map<TopicPartition, List<ConsumerSeekCallback>> topicsAndCallbacks =
+							multiGroupListener.getTopicsAndCallbacks();
+					Set<TopicPartition> getTopicPartitions = topicsAndCallbacks.keySet();
+					Set<ConsumerSeekCallback> getCallbacks =
+							topicsAndCallbacks.values()
+									.stream()
+									.flatMap(Collection::stream)
+									.collect(Collectors.toSet());
+
+					assertThat(registeredCallbacks).containsExactlyInAnyOrderElementsOf(getCallbacks).isNotEmpty();
+					assertThat(registeredTopicPartitions).containsExactlyInAnyOrderElementsOf(getTopicPartitions);
+				});
+	}
+
+	@Test
 	void seekForAllGroups() throws Exception {
 		template.send(TOPIC, "test-data");
 		template.send(TOPIC, "test-data");
-		assertThat(MultiGroupListener.latch1.await(10, TimeUnit.SECONDS)).isTrue();
-		assertThat(MultiGroupListener.latch2.await(10, TimeUnit.SECONDS)).isTrue();
+		assertThat(MultiGroupListener.latch1.await(15, TimeUnit.SECONDS)).isTrue();
+		assertThat(MultiGroupListener.latch2.await(15, TimeUnit.SECONDS)).isTrue();
 
 		MultiGroupListener.latch1 = new CountDownLatch(2);
 		MultiGroupListener.latch2 = new CountDownLatch(2);
 
 		multiGroupListener.seekToBeginning();
-		assertThat(MultiGroupListener.latch1.await(10, TimeUnit.SECONDS)).isTrue();
-		assertThat(MultiGroupListener.latch2.await(10, TimeUnit.SECONDS)).isTrue();
+		assertThat(MultiGroupListener.latch1.await(15, TimeUnit.SECONDS)).isTrue();
+		assertThat(MultiGroupListener.latch2.await(15, TimeUnit.SECONDS)).isTrue();
 	}
 
 	@Test
 	void seekForSpecificGroup() throws Exception {
 		template.send(TOPIC, "test-data");
 		template.send(TOPIC, "test-data");
-		assertThat(MultiGroupListener.latch1.await(10, TimeUnit.SECONDS)).isTrue();
-		assertThat(MultiGroupListener.latch2.await(10, TimeUnit.SECONDS)).isTrue();
+		assertThat(MultiGroupListener.latch1.await(15, TimeUnit.SECONDS)).isTrue();
+		assertThat(MultiGroupListener.latch2.await(15, TimeUnit.SECONDS)).isTrue();
 
 		MultiGroupListener.latch1 = new CountDownLatch(2);
 		MultiGroupListener.latch2 = new CountDownLatch(2);
 
-		multiGroupListener.seekToBeginningForGroup("group2");
-		assertThat(MultiGroupListener.latch2.await(10, TimeUnit.SECONDS)).isTrue();
-		assertThat(MultiGroupListener.latch1.await(100, TimeUnit.MICROSECONDS)).isFalse();
+		multiGroupListener.seekToBeginningFor("group2");
+		assertThat(MultiGroupListener.latch2.await(15, TimeUnit.SECONDS)).isTrue();
+		assertThat(MultiGroupListener.latch1.await(1, TimeUnit.SECONDS)).isFalse();
 		assertThat(MultiGroupListener.latch1.getCount()).isEqualTo(2);
 	}
 
@@ -103,7 +142,8 @@ class AbstractConsumerSeekAwareTests {
 		@Bean
 		ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
 				ConsumerFactory<String, String> consumerFactory) {
-			ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
+			ConcurrentKafkaListenerContainerFactory<String, String> factory =
+					new ConcurrentKafkaListenerContainerFactory<>();
 			factory.setConsumerFactory(consumerFactory);
 			return factory;
 		}
@@ -130,24 +170,26 @@ class AbstractConsumerSeekAwareTests {
 
 			static CountDownLatch latch2 = new CountDownLatch(2);
 
-			@KafkaListener(groupId = "group1", topics = TOPIC)
+			@KafkaListener(groupId = "group1", topics = TOPIC, concurrency = "2")
 			void listenForGroup1(String in) {
 				latch1.countDown();
 			}
 
-			@KafkaListener(groupId = "group2", topics = TOPIC)
+			@KafkaListener(groupId = "group2", topics = TOPIC, concurrency = "7")
 			void listenForGroup2(String in) {
 				latch2.countDown();
 			}
 
-			void seekToBeginningForGroup(String groupIdForSeek) {
+			void seekToBeginningFor(String groupId) {
 				getCallbacksAndTopics().forEach((cb, topics) -> {
-					if (groupIdForSeek.equals(cb.getGroupId())) {
+					if (groupId.equals(cb.getGroupId())) {
 						topics.forEach(tp -> cb.seekToBeginning(tp.topic(), tp.partition()));
 					}
 				});
 			}
+
 		}
+
 	}
 
 }

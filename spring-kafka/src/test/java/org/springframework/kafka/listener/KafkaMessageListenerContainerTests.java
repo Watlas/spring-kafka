@@ -16,23 +16,6 @@
 
 package org.springframework.kafka.listener;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyMap;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willAnswer;
-import static org.mockito.BDDMockito.willThrow;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -131,6 +114,23 @@ import org.springframework.lang.Nullable;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.util.backoff.FixedBackOff;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+
 /**
  * Tests for the listener container.
  *
@@ -144,6 +144,8 @@ import org.springframework.util.backoff.FixedBackOff;
  * @author Soby Chacko
  * @author Wang Zhiyang
  * @author Mikael Carlstedt
+ * @author Borahm Lee
+ * @author Sanghyeok An
  */
 @EmbeddedKafka(topics = { KafkaMessageListenerContainerTests.topic1, KafkaMessageListenerContainerTests.topic2,
 		KafkaMessageListenerContainerTests.topic3, KafkaMessageListenerContainerTests.topic4,
@@ -814,7 +816,7 @@ public class KafkaMessageListenerContainerTests {
 				latch1.countDown();
 				latch2.countDown();
 				acks.add(ack);
-				if (latch1.getCount() == 0 && records1.values().size() > 0
+				if (latch1.getCount() == 0 && !records1.isEmpty()
 						&& records1.values().iterator().next().size() == 4) {
 					acks.get(3).acknowledge();
 					acks.get(2).acknowledge();
@@ -2595,16 +2597,18 @@ public class KafkaMessageListenerContainerTests {
 			public void onMessage(ConsumerRecord<String, String> data) {
 				if (data.partition() == 0 && data.offset() == 0) {
 					TopicPartition topicPartition = new TopicPartition(data.topic(), data.partition());
-					final ConsumerSeekCallback seekCallbackFor = getSeekCallbackFor(topicPartition);
-					assertThat(seekCallbackFor).isNotNull();
-					seekCallbackFor.seekToBeginning(records.keySet());
-					Iterator<TopicPartition> iterator = records.keySet().iterator();
-					seekCallbackFor.seekToBeginning(Collections.singletonList(iterator.next()));
-					seekCallbackFor.seekToBeginning(Collections.singletonList(iterator.next()));
-					seekCallbackFor.seekToEnd(records.keySet());
-					iterator = records.keySet().iterator();
-					seekCallbackFor.seekToEnd(Collections.singletonList(iterator.next()));
-					seekCallbackFor.seekToEnd(Collections.singletonList(iterator.next()));
+					final List<ConsumerSeekCallback> seekCallbacksFor = getSeekCallbacksFor(topicPartition);
+					assertThat(seekCallbacksFor).isNotEmpty();
+					seekCallbacksFor.forEach(callback -> {
+						callback.seekToBeginning(records.keySet());
+						Iterator<TopicPartition> iterator = records.keySet().iterator();
+						callback.seekToBeginning(Collections.singletonList(iterator.next()));
+						callback.seekToBeginning(Collections.singletonList(iterator.next()));
+						callback.seekToEnd(records.keySet());
+						iterator = records.keySet().iterator();
+						callback.seekToEnd(Collections.singletonList(iterator.next()));
+						callback.seekToEnd(Collections.singletonList(iterator.next()));
+					});
 				}
 			}
 

@@ -16,21 +16,34 @@
 
 package org.springframework.kafka.support.micrometer;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.awaitility.Awaitility.await;
-import static org.mockito.Mockito.mock;
-
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import io.micrometer.common.KeyValues;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.core.tck.MeterRegistryAssert;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.tck.TestObservationRegistry;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.handler.DefaultTracingObservationHandler;
+import io.micrometer.tracing.handler.PropagatingReceiverTracingObservationHandler;
+import io.micrometer.tracing.handler.PropagatingSenderTracingObservationHandler;
+import io.micrometer.tracing.propagation.Propagator;
+import io.micrometer.tracing.test.simple.SimpleSpan;
+import io.micrometer.tracing.test.simple.SimpleTracer;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -42,6 +55,7 @@ import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Mono;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -68,24 +82,12 @@ import org.springframework.kafka.test.utils.KafkaTestUtils;
 import org.springframework.lang.Nullable;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.util.StringUtils;
 
-import io.micrometer.common.KeyValues;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.micrometer.core.tck.MeterRegistryAssert;
-import io.micrometer.observation.ObservationHandler;
-import io.micrometer.observation.ObservationRegistry;
-import io.micrometer.observation.tck.TestObservationRegistry;
-import io.micrometer.tracing.Span;
-import io.micrometer.tracing.TraceContext;
-import io.micrometer.tracing.Tracer;
-import io.micrometer.tracing.handler.DefaultTracingObservationHandler;
-import io.micrometer.tracing.handler.PropagatingReceiverTracingObservationHandler;
-import io.micrometer.tracing.handler.PropagatingSenderTracingObservationHandler;
-import io.micrometer.tracing.propagation.Propagator;
-import io.micrometer.tracing.test.simple.SimpleSpan;
-import io.micrometer.tracing.test.simple.SimpleTracer;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.mock;
 
 /**
  * @author Gary Russell
@@ -111,7 +113,11 @@ public class ObservationTests {
 
 	public final static String OBSERVATION_RUNTIME_EXCEPTION = "observation.runtime-exception";
 
-	public final static String OBSERVATION_ERROR = "observation.error";
+	public final static String OBSERVATION_ERROR = "observation.error.sync";
+
+	public final static String OBSERVATION_ERROR_COMPLETABLE_FUTURE = "observation.error.completableFuture";
+
+	public final static String OBSERVATION_ERROR_MONO = "observation.error.mono";
 
 	@Test
 	void endToEnd(@Autowired Listener listener, @Autowired KafkaTemplate<Integer, String> template,
@@ -230,7 +236,7 @@ public class ObservationTests {
 		assertThatListenerHasTimerWithNameAndTags(meterRegistryAssert, OBSERVATION_TEST_2, "obs2", "obs2-0");
 
 		assertThat(admin.getConfigurationProperties())
-				.containsEntry(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker.getBrokersAsString());
+				.containsEntry(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, List.of(broker.getBrokersAsString()));
 		// producer factory broker different to admin
 		assertThatAdmin(template, admin, broker.getBrokersAsString() + "," + broker.getBrokersAsString(),
 				"kafkaAdmin");
@@ -386,6 +392,50 @@ public class ObservationTests {
 				.hasMessage("obs5 error");
 	}
 
+	@Test
+	void observationErrorExceptionWhenCompletableFutureReturned(@Autowired ExceptionListener listener, @Autowired SimpleTracer tracer,
+			@Autowired @Qualifier("throwableTemplate") KafkaTemplate<Integer, String> errorTemplate,
+			@Autowired KafkaListenerEndpointRegistry endpointRegistry)
+			throws ExecutionException, InterruptedException, TimeoutException {
+
+		errorTemplate.send(OBSERVATION_ERROR_COMPLETABLE_FUTURE, "testError").get(10, TimeUnit.SECONDS);
+		Deque<SimpleSpan> spans = tracer.getSpans();
+		await().untilAsserted(() -> assertThat(spans).hasSize(2));
+		SimpleSpan span = spans.poll();
+		assertThat(span.getTags().get("spring.kafka.template.name")).isEqualTo("throwableTemplate");
+		span = spans.poll();
+		assertThat(span.getTags().get("spring.kafka.listener.id")).isEqualTo("obs6-0");
+		assertThat(span.getError())
+				.isInstanceOf(Error.class)
+				.hasMessage("Should report metric.");
+	}
+
+	@Test
+	void observationErrorExceptionWhenMonoReturned(@Autowired ExceptionListener listener, @Autowired SimpleTracer tracer,
+			@Autowired @Qualifier("throwableTemplate") KafkaTemplate<Integer, String> errorTemplate,
+			@Autowired KafkaListenerEndpointRegistry endpointRegistry)
+			throws ExecutionException, InterruptedException, TimeoutException {
+
+		errorTemplate.send(OBSERVATION_ERROR_MONO, "testError").get(10, TimeUnit.SECONDS);
+		Deque<SimpleSpan> spans = tracer.getSpans();
+		await().untilAsserted(() -> assertThat(spans).hasSize(2));
+		SimpleSpan span = spans.poll();
+		assertThat(span.getTags().get("spring.kafka.template.name")).isEqualTo("throwableTemplate");
+		span = spans.poll();
+		assertThat(span.getTags().get("spring.kafka.listener.id")).isEqualTo("obs7-0");
+		assertThat(span.getError())
+				.isInstanceOf(Error.class)
+				.hasMessage("Should report metric.");
+	}
+
+	@Test
+	void kafkaAdminNotRecreatedIfBootstrapServersSameInProducerAndAdminConfig(
+			@Autowired @Qualifier("reuseAdminBeanKafkaTemplate") KafkaTemplate<Integer, String> template,
+			@Autowired KafkaAdmin kafkaAdmin) {
+		// See this issue for more details: https://github.com/spring-projects/spring-kafka/issues/3466
+		assertThat(template.getKafkaAdmin()).isSameAs(kafkaAdmin);
+	}
+
 	@Configuration
 	@EnableKafka
 	public static class Config {
@@ -394,17 +444,27 @@ public class ObservationTests {
 
 		@Bean
 		KafkaAdmin admin(EmbeddedKafkaBroker broker) {
+			String[] brokers = StringUtils.commaDelimitedListToStringArray(broker.getBrokersAsString());
+			List<String> brokersAsList = Arrays.asList(brokers);
 			KafkaAdmin admin = new KafkaAdmin(
-					Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker.getBrokersAsString()));
+					Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, brokersAsList));
 			admin.setOperationTimeout(42);
 			return admin;
 		}
 
 		@Bean
+		@Primary
 		ProducerFactory<Integer, String> producerFactory(EmbeddedKafkaBroker broker) {
 			Map<String, Object> producerProps = KafkaTestUtils.producerProps(broker);
 			producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, broker.getBrokersAsString() + ","
 					+ broker.getBrokersAsString());
+			return new DefaultKafkaProducerFactory<>(producerProps);
+		}
+
+		@Bean
+		ProducerFactory<Integer, String> customProducerFactory(EmbeddedKafkaBroker broker) {
+			Map<String, Object> producerProps = KafkaTestUtils.producerProps(broker);
+			producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, broker.getBrokersAsString());
 			return new DefaultKafkaProducerFactory<>(producerProps);
 		}
 
@@ -434,6 +494,14 @@ public class ObservationTests {
 
 		@Bean
 		KafkaTemplate<Integer, String> throwableTemplate(ProducerFactory<Integer, String> pf) {
+			KafkaTemplate<Integer, String> template = new KafkaTemplate<>(pf);
+			template.setObservationEnabled(true);
+			return template;
+		}
+
+		@Bean
+		KafkaTemplate<Integer, String> reuseAdminBeanKafkaTemplate(
+				@Qualifier("customProducerFactory") ProducerFactory<Integer, String> pf) {
 			KafkaTemplate<Integer, String> template = new KafkaTemplate<>(pf);
 			template.setObservationEnabled(true);
 			return template;
@@ -563,14 +631,34 @@ public class ObservationTests {
 
 		@KafkaListener(id = "obs4", topics = OBSERVATION_RUNTIME_EXCEPTION)
 		void listenRuntimeException(ConsumerRecord<Integer, String> in) {
-			this.latch4.countDown();
-			throw new IllegalStateException("obs4 run time exception");
+			try {
+				throw new IllegalStateException("obs4 run time exception");
+			}
+			finally {
+				this.latch4.countDown();
+			}
 		}
 
 		@KafkaListener(id = "obs5", topics = OBSERVATION_ERROR)
 		void listenError(ConsumerRecord<Integer, String> in) {
-			this.latch5.countDown();
-			throw new Error("obs5 error");
+			try {
+				throw new Error("obs5 error");
+			}
+			finally {
+				this.latch5.countDown();
+			}
+		}
+
+		@KafkaListener(id = "obs6", topics = OBSERVATION_ERROR_COMPLETABLE_FUTURE)
+		CompletableFuture<Void> receive(ConsumerRecord<Object, Object> record) {
+			return CompletableFuture.supplyAsync(() -> {
+				throw new Error("Should report metric.");
+			});
+		}
+
+		@KafkaListener(id = "obs7", topics = OBSERVATION_ERROR_MONO)
+		Mono<Void> receive1(ConsumerRecord<Object, Object> record) {
+			return Mono.error(new Error("Should report metric."));
 		}
 
 	}

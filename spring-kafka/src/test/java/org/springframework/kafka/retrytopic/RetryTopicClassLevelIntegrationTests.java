@@ -16,10 +16,6 @@
 
 package org.springframework.kafka.retrytopic;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
-import static org.awaitility.Awaitility.await;
-
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -75,6 +71,7 @@ import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.context.EmbeddedKafka;
+import org.springframework.kafka.test.utils.KafkaTestUtils;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.converter.CompositeMessageConverter;
 import org.springframework.messaging.converter.GenericMessageConverter;
@@ -83,16 +80,21 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import org.springframework.stereotype.Component;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
+import static org.awaitility.Awaitility.await;
 
 
 /**
  * Test class level non-blocking retries.
  *
  * @author Wang Zhiyang
+ * @author Artem Bilan
+ * @author Sanghyeok An
  *
  * @since 3.2
  */
@@ -227,7 +229,6 @@ class RetryTopicClassLevelIntegrationTests {
 		assertThat(awaitLatch(latchContainer.countDownLatch51)).isTrue();
 		assertThat(awaitLatch(latchContainer.countDownLatch52)).isTrue();
 		assertThat(awaitLatch(latchContainer.countDownLatchDltThree)).isTrue();
-		assertThat(awaitLatch(latchContainer.countDownLatchDltFour)).isTrue();
 		assertThat(listener1.topics).containsExactly(TWO_LISTENERS_TOPIC, TWO_LISTENERS_TOPIC
 				+ "-listener1-0", TWO_LISTENERS_TOPIC + "-listener1-1", TWO_LISTENERS_TOPIC + "-listener1-2",
 				TWO_LISTENERS_TOPIC + "-listener1-dlt");
@@ -304,7 +305,6 @@ class RetryTopicClassLevelIntegrationTests {
 		}
 	}
 
-	@Component
 	@KafkaListener(id = "firstTopicId", topics = FIRST_TOPIC, containerFactory = MAIN_TOPIC_CONTAINER_FACTORY,
 			errorHandler = "myCustomErrorHandler", contentTypeConverter = "myCustomMessageConverter",
 			concurrency = "2")
@@ -324,7 +324,6 @@ class RetryTopicClassLevelIntegrationTests {
 
 	}
 
-	@Component
 	@KafkaListener(topics = SECOND_TOPIC, containerFactory = MAIN_TOPIC_CONTAINER_FACTORY)
 	static class SecondTopicListener {
 
@@ -338,7 +337,6 @@ class RetryTopicClassLevelIntegrationTests {
 		}
 	}
 
-	@Component
 	@RetryableTopic(attempts = "${five.attempts}",
 			backoff = @Backoff(delay = 250, maxDelay = 1000, multiplier = 1.5),
 			numPartitions = "#{3}",
@@ -365,7 +363,6 @@ class RetryTopicClassLevelIntegrationTests {
 		}
 	}
 
-	@Component
 	@RetryableTopic(dltStrategy = DltStrategy.NO_DLT, attempts = "4", backoff = @Backoff(300),
 			sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.MULTIPLE_TOPICS,
 			kafkaTemplate = "${kafka.template}")
@@ -387,6 +384,21 @@ class RetryTopicClassLevelIntegrationTests {
 		}
 	}
 
+	static class AbstractFifthTopicListener {
+
+		final List<String> topics = Collections.synchronizedList(new ArrayList<>());
+
+		@Autowired
+		CountDownLatchContainer container;
+
+		@DltHandler
+		public void annotatedDltMethod(ConsumerRecord<?, ?> record) {
+			this.topics.add(record.topic());
+			container.countDownLatchDltThree.countDown();
+		}
+
+	}
+
 	@RetryableTopic(attempts = "4",
 			backoff = @Backoff(250),
 			numPartitions = "2",
@@ -397,24 +409,13 @@ class RetryTopicClassLevelIntegrationTests {
 	@KafkaListener(id = "fifthTopicId1", topicPartitions = {@TopicPartition(topic = TWO_LISTENERS_TOPIC,
 			partitionOffsets = @PartitionOffset(partition = "0", initialOffset = "0"))},
 			containerFactory = MAIN_TOPIC_CONTAINER_FACTORY)
-	static class FifthTopicListener1 {
-
-		final List<String> topics = Collections.synchronizedList(new ArrayList<>());
-
-		@Autowired
-		CountDownLatchContainer container;
+	static class FifthTopicListener1 extends AbstractFifthTopicListener {
 
 		@KafkaHandler
 		public void listenWithAnnotation(String message, @Header(KafkaHeaders.RECEIVED_TOPIC) String receivedTopic) {
 			this.topics.add(receivedTopic);
 			container.countDownIfNotKnown(receivedTopic, container.countDownLatch51);
 			throw new RuntimeException("Annotated woooops... " + receivedTopic);
-		}
-
-		@DltHandler
-		public void annotatedDltMethod(ConsumerRecord<?, ?> record) {
-			this.topics.add(record.topic());
-			container.countDownLatchDltThree.countDown();
 		}
 
 	}
@@ -429,12 +430,7 @@ class RetryTopicClassLevelIntegrationTests {
 	@KafkaListener(id = "fifthTopicId2", topicPartitions = {@TopicPartition(topic = TWO_LISTENERS_TOPIC,
 			partitionOffsets = @PartitionOffset(partition = "1", initialOffset = "0"))},
 			containerFactory = MAIN_TOPIC_CONTAINER_FACTORY)
-	static class FifthTopicListener2 {
-
-		final List<String> topics = Collections.synchronizedList(new ArrayList<>());
-
-		@Autowired
-		CountDownLatchContainer container;
+	static class FifthTopicListener2 extends AbstractFifthTopicListener {
 
 		@KafkaHandler
 		public void listenWithAnnotation2(String message, @Header(KafkaHeaders.RECEIVED_TOPIC) String receivedTopic) {
@@ -443,15 +439,8 @@ class RetryTopicClassLevelIntegrationTests {
 			throw new RuntimeException("Annotated woooops... " + receivedTopic);
 		}
 
-		@DltHandler
-		public void annotatedDltMethod(ConsumerRecord<?, ?> record) {
-			this.topics.add(record.topic());
-			container.countDownLatchDltFour.countDown();
-		}
-
 	}
 
-	@Component
 	@RetryableTopic(attempts = "4", backoff = @Backoff(50),
 			sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.MULTIPLE_TOPICS)
 	@KafkaListener(id = "manual", topics = MANUAL_TOPIC, containerFactory = MAIN_TOPIC_CONTAINER_FACTORY)
@@ -470,7 +459,6 @@ class RetryTopicClassLevelIntegrationTests {
 
 	}
 
-	@Component
 	@RetryableTopic(attempts = "3", numPartitions = "3", exclude = MyDontRetryException.class,
 			backoff = @Backoff(delay = 50, maxDelay = 100, multiplier = 3),
 			traversingCauses = "true", kafkaTemplate = "${kafka.template}")
@@ -492,7 +480,6 @@ class RetryTopicClassLevelIntegrationTests {
 		}
 	}
 
-	@Component
 	@RetryableTopic(attempts = "2", backoff = @Backoff(50))
 	@KafkaListener(id = "reuseRetry1", topics = FIRST_REUSE_RETRY_TOPIC,
 			containerFactory = "retryTopicListenerContainerFactory")
@@ -512,7 +499,6 @@ class RetryTopicClassLevelIntegrationTests {
 
 	}
 
-	@Component
 	@RetryableTopic(attempts = "5", backoff = @Backoff(delay = 30, maxDelay = 100, multiplier = 2))
 	@KafkaListener(id = "reuseRetry2", topics = SECOND_REUSE_RETRY_TOPIC,
 			containerFactory = "retryTopicListenerContainerFactory")
@@ -532,7 +518,6 @@ class RetryTopicClassLevelIntegrationTests {
 
 	}
 
-	@Component
 	@RetryableTopic(attempts = "5", backoff = @Backoff(delay = 1, maxDelay = 5, multiplier = 1.4))
 	@KafkaListener(id = "reuseRetry3", topics = THIRD_REUSE_RETRY_TOPIC,
 			containerFactory = "retryTopicListenerContainerFactory")
@@ -552,7 +537,6 @@ class RetryTopicClassLevelIntegrationTests {
 
 	}
 
-	@Component
 	static class CountDownLatchContainer {
 
 		CountDownLatch countDownLatch1 = new CountDownLatch(5);
@@ -575,9 +559,7 @@ class RetryTopicClassLevelIntegrationTests {
 
 		CountDownLatch countDownLatchDltTwo = new CountDownLatch(1);
 
-		CountDownLatch countDownLatchDltThree = new CountDownLatch(1);
-
-		CountDownLatch countDownLatchDltFour = new CountDownLatch(1);
+		CountDownLatch countDownLatchDltThree = new CountDownLatch(2);
 
 		CountDownLatch countDownLatchReuseOne = new CountDownLatch(2);
 
@@ -603,7 +585,6 @@ class RetryTopicClassLevelIntegrationTests {
 		}
 	}
 
-	@Component
 	static class MyCustomDltProcessor {
 
 		@Autowired
@@ -758,9 +739,7 @@ class RetryTopicClassLevelIntegrationTests {
 
 		@Bean
 		ProducerFactory<String, String> producerFactory() {
-			Map<String, Object> configProps = new HashMap<>();
-			configProps.put(
-					ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+			Map<String, Object> configProps = KafkaTestUtils.producerProps(
 					this.broker.getBrokersAsString());
 			configProps.put(
 					ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
@@ -803,13 +782,8 @@ class RetryTopicClassLevelIntegrationTests {
 
 		@Bean
 		ConsumerFactory<String, String> consumerFactory() {
-			Map<String, Object> props = new HashMap<>();
-			props.put(
-					ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
-					this.broker.getBrokersAsString());
-			props.put(
-					ConsumerConfig.GROUP_ID_CONFIG,
-					"groupId");
+			Map<String, Object> props = KafkaTestUtils.consumerProps(
+					this.broker.getBrokersAsString(), "groupId");
 			props.put(
 					ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
 					StringDeserializer.class);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2023 the original author or authors.
+ * Copyright 2018-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,6 +42,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import kafka.cluster.EndPoint;
+import kafka.server.KafkaConfig;
+import kafka.server.KafkaServer;
+import kafka.utils.CoreUtils;
+import kafka.utils.TestUtils;
+import kafka.zk.ZkFourLetterWords;
+import kafka.zookeeper.ZooKeeperClient;
 import org.apache.commons.logging.LogFactory;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
@@ -67,14 +74,6 @@ import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.util.Assert;
 
-import kafka.cluster.EndPoint;
-import kafka.server.KafkaConfig;
-import kafka.server.KafkaServer;
-import kafka.utils.CoreUtils;
-import kafka.utils.TestUtils;
-import kafka.zk.ZkFourLetterWords;
-import kafka.zookeeper.ZooKeeperClient;
-
 /**
  * An embedded Kafka Broker(s) and Zookeeper manager.
  * This class is intended to be used in the unit tests.
@@ -87,6 +86,8 @@ import kafka.zookeeper.ZooKeeperClient;
  * @author Nakul Mishra
  * @author Pawel Lozinski
  * @author Adrian Chlebosz
+ * @author Soby Chacko
+ * @author Sanghyeok An
  *
  * @since 2.2
  */
@@ -302,17 +303,17 @@ public class EmbeddedKafkaZKBroker implements EmbeddedKafkaBroker {
 			}
 			this.zkConnect = LOOPBACK + ":" + this.zookeeper.getPort();
 			this.kafkaServers.clear();
-			boolean userLogDir = this.brokerProperties.get(KafkaConfig.LogDirProp()) != null && this.count == 1;
+			boolean userLogDir = this.brokerProperties.get("log.dir") != null && this.count == 1;
 			for (int i = 0; i < this.count; i++) {
 				Properties brokerConfigProperties = createBrokerProperties(i);
-				brokerConfigProperties.setProperty(KafkaConfig.ReplicaSocketTimeoutMsProp(), "1000");
-				brokerConfigProperties.setProperty(KafkaConfig.ControllerSocketTimeoutMsProp(), "1000");
-				brokerConfigProperties.setProperty(KafkaConfig.OffsetsTopicReplicationFactorProp(), "1");
-				brokerConfigProperties.setProperty(KafkaConfig.ReplicaHighWatermarkCheckpointIntervalMsProp(),
+				brokerConfigProperties.setProperty("replica.socket.timeout.ms", "1000");
+				brokerConfigProperties.setProperty("controller.socket.timeout.ms", "1000");
+				brokerConfigProperties.setProperty("offsets.topic.replication.factor", "1");
+				brokerConfigProperties.setProperty("replica.high.watermark.checkpoint.interval.ms",
 						String.valueOf(Long.MAX_VALUE));
 				this.brokerProperties.forEach(brokerConfigProperties::put);
-				if (!this.brokerProperties.containsKey(KafkaConfig.NumPartitionsProp())) {
-					brokerConfigProperties.setProperty(KafkaConfig.NumPartitionsProp(), "" + this.partitionsPerTopic);
+				if (!this.brokerProperties.containsKey("num.partitions")) {
+					brokerConfigProperties.setProperty("num.partitions", "" + this.partitionsPerTopic);
 				}
 				if (!userLogDir) {
 					logDir(brokerConfigProperties);
@@ -337,7 +338,7 @@ public class EmbeddedKafkaZKBroker implements EmbeddedKafkaBroker {
 
 	private void logDir(Properties brokerConfigProperties) {
 		try {
-			brokerConfigProperties.put(KafkaConfig.LogDirProp(),
+			brokerConfigProperties.put("log.dir",
 					Files.createTempDirectory("spring.kafka." + UUID.randomUUID()).toString());
 		}
 		catch (IOException e) {
@@ -733,7 +734,7 @@ public class EmbeddedKafkaZKBroker implements EmbeddedKafkaBroker {
 		List<String> notEmbedded = Arrays.stream(topicsToConsume)
 				.filter(topic -> !this.topics.contains(topic))
 				.collect(Collectors.toList());
-		if (notEmbedded.size() > 0) {
+		if (!notEmbedded.isEmpty()) {
 			throw new IllegalStateException("topic(s):'" + notEmbedded + "' are not in embedded topic list");
 		}
 		final AtomicReference<Collection<TopicPartition>> assigned = new AtomicReference<>();

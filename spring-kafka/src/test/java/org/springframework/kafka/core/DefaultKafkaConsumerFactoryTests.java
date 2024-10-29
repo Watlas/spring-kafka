@@ -16,11 +16,6 @@
 
 package org.springframework.kafka.core;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-
 import java.time.Duration;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -42,6 +37,8 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,12 +57,18 @@ import org.springframework.kafka.transaction.KafkaTransactionManager;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
 /**
  * @author Gary Russell
  * @author Chris Gilbert
  * @author Artem Bilan
  * @author Adrian Gygax
  * @author Soby Chacko
+ * @author Yaniv Nahoum
  *
  * @since 1.0.6
  */
@@ -458,8 +461,9 @@ public class DefaultKafkaConsumerFactoryTests {
 	}
 
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	@Test
-	void listener() {
+	@ParameterizedTest
+	@ValueSource(booleans = { true, false })
+	void listener(boolean closeWithTimeout) {
 		Map<String, Object> consumerConfig = KafkaTestUtils.consumerProps("txCache1Group", "false", this.embeddedKafka);
 		consumerConfig.put(ConsumerConfig.CLIENT_ID_CONFIG, "foo-0");
 		DefaultKafkaConsumerFactory cf = new DefaultKafkaConsumerFactory(consumerConfig);
@@ -484,8 +488,13 @@ public class DefaultKafkaConsumerFactoryTests {
 		Consumer consumer = cf.createConsumer();
 		assertThat(adds).hasSize(1);
 		assertThat(adds.get(0)).isEqualTo("cf.foo-0");
-		assertThat(removals).hasSize(0);
-		consumer.close(Duration.ofSeconds(10));
+		assertThat(removals).isEmpty();
+		if (closeWithTimeout) {
+			consumer.close(Duration.ofSeconds(10));
+		}
+		else {
+			consumer.close();
+		}
 		assertThat(removals).hasSize(1);
 	}
 
@@ -494,10 +503,11 @@ public class DefaultKafkaConsumerFactoryTests {
 	void configDeserializer() {
 		Deserializer key = mock(Deserializer.class);
 		Deserializer value = mock(Deserializer.class);
-		Map<String, Object> config = new HashMap<>();
+		Map<String, Object> config = KafkaTestUtils.consumerProps("mockGroup", "false", this.embeddedKafka);
 		DefaultKafkaConsumerFactory cf = new DefaultKafkaConsumerFactory(config, key, value);
 		Deserializer keyDeserializer = cf.getKeyDeserializer();
 		assertThat(keyDeserializer).isSameAs(key);
+		cf.createKafkaConsumer(config);
 		verify(key).configure(config, true);
 		Deserializer valueDeserializer = cf.getValueDeserializer();
 		assertThat(valueDeserializer).isSameAs(value);

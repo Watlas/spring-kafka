@@ -16,9 +16,6 @@
 
 package org.springframework.kafka.retrytopic;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +50,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.kafka.support.converter.ConversionException;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.context.EmbeddedKafka;
+import org.springframework.kafka.test.utils.KafkaTestUtils;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.scheduling.TaskScheduler;
@@ -61,11 +59,15 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.util.backoff.FixedBackOff;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
+
 
 /**
  * Test class level non-blocking retries.
  *
  * @author Wang Zhiyang
+ * @author Sanghyeok An
  *
  * @since 3.2
  */
@@ -417,9 +419,7 @@ class RetryTopicClassLevelExceptionRoutingIntegrationTests {
 
 		@Bean
 		ProducerFactory<String, String> producerFactory() {
-			Map<String, Object> configProps = new HashMap<>();
-			configProps.put(
-					ProducerConfig.BOOTSTRAP_SERVERS_CONFIG,
+			Map<String, Object> configProps = KafkaTestUtils.producerProps(
 					this.broker.getBrokersAsString());
 			configProps.put(
 					ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
@@ -452,13 +452,8 @@ class RetryTopicClassLevelExceptionRoutingIntegrationTests {
 
 		@Bean
 		ConsumerFactory<String, String> consumerFactory() {
-			Map<String, Object> props = new HashMap<>();
-			props.put(
-					ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
-					this.broker.getBrokersAsString());
-			props.put(
-					ConsumerConfig.GROUP_ID_CONFIG,
-					"groupId");
+			Map<String, Object> props = KafkaTestUtils.consumerProps(
+					this.broker.getBrokersAsString(), "groupId");
 			props.put(
 					ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
 					StringDeserializer.class);

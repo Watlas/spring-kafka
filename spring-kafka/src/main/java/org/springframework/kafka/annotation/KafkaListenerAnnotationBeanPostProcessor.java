@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
@@ -46,7 +47,6 @@ import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanInitializationException;
-import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.ObjectFactory;
@@ -141,6 +141,8 @@ import org.springframework.validation.Validator;
  * @author Filip Halemba
  * @author Tomaz Fernandes
  * @author Wang Zhiyang
+ * @author Sanghyeok An
+ * @author Soby Chacko
  *
  * @see KafkaListener
  * @see KafkaListenerErrorHandler
@@ -152,7 +154,7 @@ import org.springframework.validation.Validator;
  * @see MethodKafkaListenerEndpoint
  */
 public class KafkaListenerAnnotationBeanPostProcessor<K, V>
-		implements BeanPostProcessor, Ordered, ApplicationContextAware, InitializingBean, SmartInitializingSingleton {
+		implements BeanPostProcessor, Ordered, ApplicationContextAware, SmartInitializingSingleton {
 
 	private static final String UNCHECKED = "unchecked";
 
@@ -181,6 +183,8 @@ public class KafkaListenerAnnotationBeanPostProcessor<K, V>
 	private final KafkaListenerEndpointRegistrar registrar = new KafkaListenerEndpointRegistrar();
 
 	private final AtomicInteger counter = new AtomicInteger();
+
+	private final AtomicBoolean enhancerIsBuilt = new AtomicBoolean();
 
 	private KafkaListenerEndpointRegistry endpointRegistry;
 
@@ -296,11 +300,6 @@ public class KafkaListenerAnnotationBeanPostProcessor<K, V>
 	}
 
 	@Override
-	public void afterPropertiesSet() throws Exception {
-		buildEnhancer();
-	}
-
-	@Override
 	public void afterSingletonsInstantiated() {
 		this.registrar.setBeanFactory(this.beanFactory);
 
@@ -346,10 +345,10 @@ public class KafkaListenerAnnotationBeanPostProcessor<K, V>
 	}
 
 	private void buildEnhancer() {
-		if (this.applicationContext != null) {
+		if (this.applicationContext != null && this.enhancerIsBuilt.compareAndSet(false, true)) {
 			Map<String, AnnotationEnhancer> enhancersMap =
 					this.applicationContext.getBeansOfType(AnnotationEnhancer.class, false, false);
-			if (enhancersMap.size() > 0) {
+			if (!enhancersMap.isEmpty()) {
 				List<AnnotationEnhancer> enhancers = enhancersMap.values()
 						.stream()
 						.sorted(new OrderComparator())
@@ -359,7 +358,7 @@ public class KafkaListenerAnnotationBeanPostProcessor<K, V>
 					for (AnnotationEnhancer enh : enhancers) {
 						newAttrs = enh.apply(newAttrs, element);
 					}
-					return attrs;
+					return newAttrs;
 				};
 			}
 		}
@@ -372,6 +371,7 @@ public class KafkaListenerAnnotationBeanPostProcessor<K, V>
 
 	@Override
 	public Object postProcessAfterInitialization(final Object bean, final String beanName) throws BeansException {
+		buildEnhancer();
 		if (!this.nonAnnotatedClasses.contains(bean.getClass())) {
 			Class<?> targetClass = AopUtils.getTargetClass(bean);
 			Collection<KafkaListener> classLevelListeners = findListenerAnnotations(targetClass);
@@ -745,11 +745,16 @@ public class KafkaListenerAnnotationBeanPostProcessor<K, V>
 
 	private void resolveContainerPostProcessor(MethodKafkaListenerEndpoint<?, ?> endpoint,
 			KafkaListener kafkaListener) {
-
-		String containerPostProcessor = kafkaListener.containerPostProcessor();
-		if (StringUtils.hasText(containerPostProcessor)) {
-			endpoint.setContainerPostProcessor(this.beanFactory.getBean(containerPostProcessor,
-					ContainerPostProcessor.class));
+		Object containerPostProcessor = resolveExpression(kafkaListener.containerPostProcessor());
+		if (containerPostProcessor instanceof ContainerPostProcessor<?, ?, ?> cpp) {
+			endpoint.setContainerPostProcessor(cpp);
+		}
+		else {
+			String containerPostProcessorBeanName = resolveExpressionAsString(kafkaListener.containerPostProcessor(), "containerPostProcessor");
+			if (StringUtils.hasText(containerPostProcessorBeanName)) {
+				endpoint.setContainerPostProcessor(
+						this.beanFactory.getBean(containerPostProcessorBeanName, ContainerPostProcessor.class));
+			}
 		}
 	}
 

@@ -36,6 +36,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import org.apache.commons.logging.LogFactory;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.AlterConfigOp;
@@ -68,12 +69,15 @@ import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
- * An admin that delegates to an {@link AdminClient} to create topics defined
+ * An admin that delegates to an {@link Admin} to create topics defined
  * in the application context.
  *
  * @author Gary Russell
  * @author Artem Bilan
  * @author Adrian Gygax
+ * @author Sanghyeok An
+ * @author Valentina Armenise
+ * @author Anders Swanson
  *
  * @since 1.3
  */
@@ -112,9 +116,9 @@ public class KafkaAdmin extends KafkaResourceFactory
 	private String clusterId;
 
 	/**
-	 * Create an instance with an {@link AdminClient} based on the supplied
+	 * Create an instance with an {@link Admin} based on the supplied
 	 * configuration.
-	 * @param config the configuration for the {@link AdminClient}.
+	 * @param config the configuration for the {@link Admin}.
 	 */
 	public KafkaAdmin(Map<String, Object> config) {
 		this.configs = new HashMap<>(config);
@@ -213,6 +217,15 @@ public class KafkaAdmin extends KafkaResourceFactory
 		this.clusterId = clusterId;
 	}
 
+	/**
+	 * Get the clusterId property.
+	 * @return the cluster id.
+	 * @since 3.1.8
+	 */
+	public String getClusterId() {
+		return this.clusterId;
+	}
+
 	@Override
 	public Map<String, Object> getConfigurationProperties() {
 		Map<String, Object> configs2 = new HashMap<>(this.configs);
@@ -239,8 +252,8 @@ public class KafkaAdmin extends KafkaResourceFactory
 	 */
 	public final boolean initialize() {
 		Collection<NewTopic> newTopics = newTopics();
-		if (newTopics.size() > 0) {
-			AdminClient adminClient = null;
+		if (!newTopics.isEmpty()) {
+			Admin adminClient = null;
 			try {
 				adminClient = createAdmin();
 			}
@@ -336,7 +349,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 	@Nullable
 	public String clusterId() {
 		if (this.clusterId == null) {
-			try (AdminClient client = createAdmin()) {
+			try (Admin client = createAdmin()) {
 				this.clusterId = client.describeCluster().clusterId().get(this.operationTimeout, TimeUnit.SECONDS);
 				if (this.clusterId == null) {
 					this.clusterId = "null";
@@ -354,14 +367,14 @@ public class KafkaAdmin extends KafkaResourceFactory
 
 	@Override
 	public void createOrModifyTopics(NewTopic... topics) {
-		try (AdminClient client = createAdmin()) {
+		try (Admin client = createAdmin()) {
 			addOrModifyTopicsIfNeeded(client, Arrays.asList(topics));
 		}
 	}
 
 	@Override
 	public Map<String, TopicDescription> describeTopics(String... topicNames) {
-		try (AdminClient admin = createAdmin()) {
+		try (Admin admin = createAdmin()) {
 			Map<String, TopicDescription> results = new HashMap<>();
 			DescribeTopicsResult topics = admin.describeTopics(Arrays.asList(topicNames));
 			try {
@@ -378,7 +391,13 @@ public class KafkaAdmin extends KafkaResourceFactory
 		}
 	}
 
-	AdminClient createAdmin() {
+	/**
+	 * Creates a new {@link Admin} client instance using the {@link AdminClient} class.
+	 * @return the new {@link Admin} client instance.
+	 * @since 3.3.0
+	 * @see AdminClient#create(Map)
+	 */
+	protected Admin createAdmin() {
 		return AdminClient.create(getAdminConfig());
 	}
 
@@ -398,8 +417,8 @@ public class KafkaAdmin extends KafkaResourceFactory
 		return configs2;
 	}
 
-	private void addOrModifyTopicsIfNeeded(AdminClient adminClient, Collection<NewTopic> topics) {
-		if (topics.size() > 0) {
+	private void addOrModifyTopicsIfNeeded(Admin adminClient, Collection<NewTopic> topics) {
+		if (!topics.isEmpty()) {
 			Map<String, NewTopic> topicNameToTopic = new HashMap<>();
 			topics.forEach(t -> topicNameToTopic.compute(t.name(), (k, v) -> t));
 			DescribeTopicsResult topicInfo = adminClient
@@ -409,10 +428,10 @@ public class KafkaAdmin extends KafkaResourceFactory
 			List<NewTopic> topicsToAdd = new ArrayList<>();
 			Map<String, NewPartitions> topicsWithPartitionMismatches =
 					checkPartitions(topicNameToTopic, topicInfo, topicsToAdd);
-			if (topicsToAdd.size() > 0) {
+			if (!topicsToAdd.isEmpty()) {
 				addTopics(adminClient, topicsToAdd);
 			}
-			if (topicsWithPartitionMismatches.size() > 0) {
+			if (!topicsWithPartitionMismatches.isEmpty()) {
 				createMissingPartitions(adminClient, topicsWithPartitionMismatches);
 			}
 			if (this.modifyTopicConfigs) {
@@ -428,7 +447,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 	}
 
 	private Map<ConfigResource, List<ConfigEntry>> checkTopicsForConfigMismatches(
-			AdminClient adminClient, Collection<NewTopic> topics) {
+			Admin adminClient, Collection<NewTopic> topics) {
 
 		List<ConfigResource> configResources = topics.stream()
 				.map(topic -> new ConfigResource(Type.TOPIC, topic.name()))
@@ -457,7 +476,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 							configMismatchesEntries.add(actualConfigParameter);
 						}
 					}
-					if (configMismatchesEntries.size() > 0) {
+					if (!configMismatchesEntries.isEmpty()) {
 						configMismatches.put(topicConfig.getKey(), configMismatchesEntries);
 					}
 				}
@@ -473,7 +492,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 		}
 	}
 
-	private void adjustConfigMismatches(AdminClient adminClient, Collection<NewTopic> topics,
+	private void adjustConfigMismatches(Admin adminClient, Collection<NewTopic> topics,
 			Map<ConfigResource, List<ConfigEntry>> mismatchingConfigs) {
 		for (Map.Entry<ConfigResource, List<ConfigEntry>> mismatchingConfigsOfTopic : mismatchingConfigs.entrySet()) {
 			ConfigResource topicConfigResource = mismatchingConfigsOfTopic.getKey();
@@ -491,7 +510,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 												desiredConfigs.get(mismatchConfigEntry.name())),
 										OpType.SET));
 					}
-					if (alterConfigOperations.size() > 0) {
+					if (!alterConfigOperations.isEmpty()) {
 						try {
 							AlterConfigsResult alterConfigsResult = adminClient
 									.incrementalAlterConfigs(Map.of(topicConfigResource, alterConfigOperations));
@@ -545,7 +564,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 		return topicsToModify;
 	}
 
-	private void addTopics(AdminClient adminClient, List<NewTopic> topicsToAdd) {
+	private void addTopics(Admin adminClient, List<NewTopic> topicsToAdd) {
 		CreateTopicsResult topicResults = adminClient.createTopics(topicsToAdd);
 		try {
 			topicResults.all().get(this.operationTimeout, TimeUnit.SECONDS);
@@ -568,7 +587,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 		}
 	}
 
-	private void createMissingPartitions(AdminClient adminClient, Map<String, NewPartitions> topicsToModify) {
+	private void createMissingPartitions(Admin adminClient, Map<String, NewPartitions> topicsToModify) {
 		CreatePartitionsResult partitionsResult = adminClient.createPartitions(topicsToModify);
 		try {
 			partitionsResult.all().get(this.operationTimeout, TimeUnit.SECONDS);
