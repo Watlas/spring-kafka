@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2019 the original author or authors.
+ * Copyright 2018-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.regex.Pattern;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.support.TopicPartitionOffset;
 import org.springframework.kafka.support.converter.MessageConverter;
-import org.springframework.lang.Nullable;
 
 /**
  * Adapter to avoid having to implement all methods.
@@ -37,57 +38,48 @@ class KafkaListenerEndpointAdapter implements KafkaListenerEndpoint {
 	KafkaListenerEndpointAdapter() {
 	}
 
-	@Nullable
 	@Override
-	public String getId() {
+	public @Nullable String getId() {
 		return null;
 	}
 
-	@Nullable
 	@Override
-	public String getGroupId() {
+	public @Nullable String getGroupId() {
 		return null;
 	}
 
-	@Nullable
 	@Override
-	public String getGroup() {
+	public @Nullable String getGroup() {
 		return null;
 	}
 
-	@Nullable
 	@Override
-	public Collection<String> getTopics() {
+	public @Nullable Collection<String> getTopics() {
 		return Collections.emptyList();
 	}
 
-	@Nullable
 	@Override
-	public TopicPartitionOffset[] getTopicPartitionsToAssign() {
+	public TopicPartitionOffset @Nullable [] getTopicPartitionsToAssign() {
 		return new TopicPartitionOffset[0];
 	}
 
-	@Nullable
 	@Override
-	public Pattern getTopicPattern() {
+	public @Nullable Pattern getTopicPattern() {
 		return null;
 	}
 
-	@Nullable
 	@Override
-	public String getClientIdPrefix() {
+	public @Nullable String getClientIdPrefix() {
 		return null;
 	}
 
-	@Nullable
 	@Override
-	public Integer getConcurrency() {
+	public @Nullable Integer getConcurrency() {
 		return null;
 	}
 
-	@Nullable
 	@Override
-	public Boolean getAutoStartup() { // NOSONAR
+	public @Nullable Boolean getAutoStartup() { // NOSONAR
 		return null; // NOSONAR null check by caller
 	}
 

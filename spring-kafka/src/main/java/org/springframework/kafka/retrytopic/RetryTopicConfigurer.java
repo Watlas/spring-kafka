@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2024 the original author or authors.
+ * Copyright 2018-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,8 @@ import java.util.function.Consumer;
 
 import org.apache.commons.logging.LogFactory;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
@@ -40,8 +42,6 @@ import org.springframework.kafka.support.EndpointHandlerMethod;
 import org.springframework.kafka.support.EndpointHandlerMultiMethod;
 import org.springframework.kafka.support.KafkaUtils;
 import org.springframework.kafka.support.TopicForRetryable;
-import org.springframework.lang.NonNull;
-import org.springframework.lang.Nullable;
 
 /**
  *
@@ -118,7 +118,7 @@ import org.springframework.lang.Nullable;
  *                 .newInstance()
  *                 .fixedBackOff(3000)
  *                 .maxAttempts(5)
- *                 .includeTopics("my-topic", "my-other-topic")
+ *                 .includeTopics(List.of("my-topic", "my-other-topic"))
  *                 .create(template);
  *         }</code>
  * </pre>
@@ -129,7 +129,7 @@ import org.springframework.lang.Nullable;
  *                 .newInstance()
  *                 .exponentialBackoff(1000, 2, 5000)
  *                 .maxAttempts(4)
- *                 .excludeTopics("my-topic", "my-other-topic")
+ *                 .excludeTopics(List.of("my-topic", "my-other-topic"))
  *                 .retryOn(MyException.class)
  *                 .create(template);
  *         }</code>
@@ -266,6 +266,7 @@ public class RetryTopicConfigurer implements BeanFactoryAware {
 
 	private final ListenerContainerFactoryConfigurer listenerContainerFactoryConfigurer;
 
+	@SuppressWarnings("NullAway.Init")
 	private BeanFactory beanFactory;
 
 	private final RetryTopicNamesProviderFactory retryTopicNamesProviderFactory;
@@ -323,7 +324,7 @@ public class RetryTopicConfigurer implements BeanFactoryAware {
 
 	private void configureEndpoints(MethodKafkaListenerEndpoint<?, ?> mainEndpoint,
 									EndpointProcessor endpointProcessor,
-									KafkaListenerContainerFactory<?> factory,
+									@Nullable KafkaListenerContainerFactory<?> factory,
 									KafkaListenerEndpointRegistrar registrar,
 									RetryTopicConfiguration configuration,
 									DestinationTopicProcessor.Context context,
@@ -343,7 +344,7 @@ public class RetryTopicConfigurer implements BeanFactoryAware {
 	}
 
 	private void processAndRegisterEndpoint(MethodKafkaListenerEndpoint<?, ?> mainEndpoint, EndpointProcessor endpointProcessor,
-											KafkaListenerContainerFactory<?> factory,
+											@Nullable KafkaListenerContainerFactory<?> factory,
 											String defaultFactoryBeanName,
 											KafkaListenerEndpointRegistrar registrar,
 											RetryTopicConfiguration configuration, DestinationTopicProcessor.Context context,
@@ -454,7 +455,7 @@ public class RetryTopicConfigurer implements BeanFactoryAware {
 	}
 
 	private KafkaListenerContainerFactory<?> resolveAndConfigureFactoryForMainEndpoint(
-			KafkaListenerContainerFactory<?> providedFactory,
+			@Nullable KafkaListenerContainerFactory<?> providedFactory,
 			String defaultFactoryBeanName, RetryTopicConfiguration configuration) {
 
 		ConcurrentKafkaListenerContainerFactory<?, ?> resolvedFactory = this.containerFactoryResolver
@@ -465,7 +466,7 @@ public class RetryTopicConfigurer implements BeanFactoryAware {
 	}
 
 	private KafkaListenerContainerFactory<?> resolveAndConfigureFactoryForRetryEndpoint(
-			KafkaListenerContainerFactory<?> providedFactory,
+			@Nullable KafkaListenerContainerFactory<?> providedFactory,
 			String defaultFactoryBeanName,
 			RetryTopicConfiguration configuration) {
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@ package org.springframework.kafka.support.serializer;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JavaType;
@@ -27,12 +29,12 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.Serializer;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.kafka.support.JacksonUtils;
 import org.springframework.kafka.support.mapping.AbstractJavaTypeMapper;
 import org.springframework.kafka.support.mapping.DefaultJackson2JavaTypeMapper;
 import org.springframework.kafka.support.mapping.Jackson2JavaTypeMapper;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
@@ -52,6 +54,7 @@ import org.springframework.util.StringUtils;
  * @author Gary Russell
  * @author Elliot Kennedy
  * @author Wang Zhiyang
+ * @author Omer Celik
  */
 public class JsonSerializer<T> implements Serializer<T> {
 
@@ -80,6 +83,8 @@ public class JsonSerializer<T> implements Serializer<T> {
 
 	private boolean configured;
 
+	private final Lock globalLock = new ReentrantLock();
+
 	public JsonSerializer() {
 		this((JavaType) null, JacksonUtils.enhancedObjectMapper());
 	}
@@ -96,7 +101,7 @@ public class JsonSerializer<T> implements Serializer<T> {
 		this(targetType == null ? null : objectMapper.constructType(targetType.getType()), objectMapper);
 	}
 
-	public JsonSerializer(JavaType targetType, ObjectMapper objectMapper) {
+	public JsonSerializer(@Nullable JavaType targetType, ObjectMapper objectMapper) {
 		Assert.notNull(objectMapper, "'objectMapper' must not be null.");
 		this.objectMapper = objectMapper;
 		this.writer = objectMapper.writerFor(targetType);
@@ -146,31 +151,37 @@ public class JsonSerializer<T> implements Serializer<T> {
 	}
 
 	@Override
-	public synchronized void configure(Map<String, ?> configs, boolean isKey) {
-		if (this.configured) {
-			return;
-		}
-		Assert.state(!this.setterCalled
-				|| (!configs.containsKey(ADD_TYPE_INFO_HEADERS) && !configs.containsKey(TYPE_MAPPINGS)),
-				"JsonSerializer must be configured with property setters, or via configuration properties; not both");
-		setUseTypeMapperForKey(isKey);
-		if (configs.containsKey(ADD_TYPE_INFO_HEADERS)) {
-			Object config = configs.get(ADD_TYPE_INFO_HEADERS);
-			if (config instanceof Boolean configBoolean) {
-				this.addTypeInfo = configBoolean;
+	public void configure(Map<String, ?> configs, boolean isKey) {
+		try {
+			this.globalLock.lock();
+			if (this.configured) {
+				return;
 			}
-			else if (config instanceof String configString) {
-				this.addTypeInfo = Boolean.parseBoolean(configString);
+			Assert.state(!this.setterCalled
+					|| (!configs.containsKey(ADD_TYPE_INFO_HEADERS) && !configs.containsKey(TYPE_MAPPINGS)),
+					"JsonSerializer must be configured with property setters, or via configuration properties; not both");
+			setUseTypeMapperForKey(isKey);
+			if (configs.containsKey(ADD_TYPE_INFO_HEADERS)) {
+				Object config = configs.get(ADD_TYPE_INFO_HEADERS);
+				if (config instanceof Boolean configBoolean) {
+					this.addTypeInfo = configBoolean;
+				}
+				else if (config instanceof String configString) {
+					this.addTypeInfo = Boolean.parseBoolean(configString);
+				}
+				else {
+					throw new IllegalStateException(ADD_TYPE_INFO_HEADERS + " must be Boolean or String");
+				}
 			}
-			else {
-				throw new IllegalStateException(ADD_TYPE_INFO_HEADERS + " must be Boolean or String");
+			if (configs.containsKey(TYPE_MAPPINGS) && !this.typeMapperExplicitlySet
+					&& this.typeMapper instanceof AbstractJavaTypeMapper abstractJavaTypeMapper) {
+				abstractJavaTypeMapper.setIdClassMapping(createMappings((String) configs.get(TYPE_MAPPINGS)));
 			}
+			this.configured = true;
 		}
-		if (configs.containsKey(TYPE_MAPPINGS) && !this.typeMapperExplicitlySet
-				&& this.typeMapper instanceof AbstractJavaTypeMapper abstractJavaTypeMapper) {
-			abstractJavaTypeMapper.setIdClassMapping(createMappings((String) configs.get(TYPE_MAPPINGS)));
+		finally {
+			this.globalLock.unlock();
 		}
-		this.configured = true;
 	}
 
 	protected static Map<String, Class<?>> createMappings(String mappings) {
@@ -190,8 +201,8 @@ public class JsonSerializer<T> implements Serializer<T> {
 		return mappingsMap;
 	}
 
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
 	@Override
-	@Nullable
 	public byte[] serialize(String topic, Headers headers, @Nullable T data) {
 		if (data == null) {
 			return null;
@@ -202,8 +213,8 @@ public class JsonSerializer<T> implements Serializer<T> {
 		return serialize(topic, data);
 	}
 
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
 	@Override
-	@Nullable
 	public byte[] serialize(String topic, @Nullable T data) {
 		if (data == null) {
 			return null;

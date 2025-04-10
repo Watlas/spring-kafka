@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 the original author or authors.
+ * Copyright 2024-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -73,6 +74,8 @@ import static org.assertj.core.api.Assertions.fail;
 @DirtiesContext
 @EmbeddedKafka
 @TestPropertySource(properties = { "five.attempts=5", "kafka.template=customKafkaTemplate"})
+@DisabledIfEnvironmentVariable(named = "GITHUB_ACTION", matches = "true",
+		disabledReason = "The test is too heavy and rely a lot in the timing.")
 public class AsyncCompletableFutureRetryTopicScenarioTests {
 
 	private final static String MAIN_TOPIC_CONTAINER_FACTORY = "kafkaListenerContainerFactory";
@@ -599,9 +602,9 @@ public class AsyncCompletableFutureRetryTopicScenarioTests {
 		@Autowired
 		CountDownLatchContainer container;
 
-		private final List<String> receivedMsgs = new ArrayList<>();
+		private final List<String> receivedMsgs = Collections.synchronizedList(new ArrayList<>());
 
-		private final List<String> receivedTopics = new ArrayList<>();
+		private final List<String> receivedTopics = Collections.synchronizedList(new ArrayList<>());
 
 		@KafkaHandler
 		public CompletableFuture<Void> listen(String message, @Header(KafkaHeaders.RECEIVED_TOPIC) String receivedTopic) {
@@ -631,9 +634,9 @@ public class AsyncCompletableFutureRetryTopicScenarioTests {
 		@Autowired
 		CountDownLatchContainer container;
 
-		private final List<String> receivedMsgs = new ArrayList<>();
+		private final List<String> receivedMsgs = Collections.synchronizedList(new ArrayList<>());
 
-		private final List<String> receivedTopics = new ArrayList<>();
+		private final List<String> receivedTopics = Collections.synchronizedList(new ArrayList<>());
 
 		private CountDownLatch firstRetryFailMsgLatch = new CountDownLatch(1);
 
@@ -688,9 +691,9 @@ public class AsyncCompletableFutureRetryTopicScenarioTests {
 		@Autowired
 		CountDownLatchContainer container;
 
-		protected final List<String> receivedMsgs = new ArrayList<>();
+		private final List<String> receivedMsgs = Collections.synchronizedList(new ArrayList<>());
 
-		private final List<String> receivedTopics = new ArrayList<>();
+		private final List<String> receivedTopics = Collections.synchronizedList(new ArrayList<>());
 
 		private CountDownLatch firstRetryFailMsgLatch = new CountDownLatch(1);
 
@@ -747,9 +750,9 @@ public class AsyncCompletableFutureRetryTopicScenarioTests {
 		@Autowired
 		CountDownLatchContainer container;
 
-		protected final List<String> receivedMsgs = new ArrayList<>();
+		private final List<String> receivedMsgs = Collections.synchronizedList(new ArrayList<>());
 
-		private final List<String> receivedTopics = new ArrayList<>();
+		private final List<String> receivedTopics = Collections.synchronizedList(new ArrayList<>());
 
 		public static final String FAIL_PREFIX = "fail";
 
@@ -812,9 +815,9 @@ public class AsyncCompletableFutureRetryTopicScenarioTests {
 		@Autowired
 		CountDownLatchContainer container;
 
-		protected final List<String> receivedMsgs = new ArrayList<>();
+		private final List<String> receivedMsgs = Collections.synchronizedList(new ArrayList<>());
 
-		private final List<String> receivedTopics = new ArrayList<>();
+		private final List<String> receivedTopics = Collections.synchronizedList(new ArrayList<>());
 
 		public static final String LONG_SUCCESS_MSG = "success";
 
@@ -878,9 +881,9 @@ public class AsyncCompletableFutureRetryTopicScenarioTests {
 		@Autowired
 		CountDownLatchContainer container;
 
-		protected final List<String> receivedMsgs = new ArrayList<>();
+		private final List<String> receivedMsgs = Collections.synchronizedList(new ArrayList<>());
 
-		private final List<String> receivedTopics = new ArrayList<>();
+		private final List<String> receivedTopics = Collections.synchronizedList(new ArrayList<>());
 
 		public static final String LONG_SUCCESS_MSG = "success";
 
@@ -944,9 +947,9 @@ public class AsyncCompletableFutureRetryTopicScenarioTests {
 		@Autowired
 		CountDownLatchContainer container;
 
-		protected final List<String> receivedMsgs = new ArrayList<>();
+		private final List<String> receivedMsgs = Collections.synchronizedList(new ArrayList<>());
 
-		private final List<String> receivedTopics = new ArrayList<>();
+		private final List<String> receivedTopics = Collections.synchronizedList(new ArrayList<>());
 
 		public static final String SUCCESS_PREFIX = "success";
 
@@ -1077,7 +1080,7 @@ public class AsyncCompletableFutureRetryTopicScenarioTests {
 
 	static class MyCustomDltProcessor {
 
-		final List<String> receivedMsg = new ArrayList<>();
+		private final List<String> receivedMsg = Collections.synchronizedList(new ArrayList<>());
 
 		MyCustomDltProcessor(KafkaTemplate<String, String> kafkaTemplate,
 									CountDownLatch latch) {

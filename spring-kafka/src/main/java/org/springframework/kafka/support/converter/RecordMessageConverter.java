@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2019 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,9 +21,10 @@ import java.lang.reflect.Type;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.kafka.support.Acknowledgment;
-import org.springframework.lang.NonNull;
 import org.springframework.messaging.Message;
 
 /**
@@ -43,8 +44,8 @@ public interface RecordMessageConverter extends MessageConverter {
 	 * @return the message.
 	 */
 	@NonNull
-	Message<?> toMessage(ConsumerRecord<?, ?> record, Acknowledgment acknowledgment, Consumer<?, ?> consumer,
-			Type payloadType);
+	Message<?> toMessage(ConsumerRecord<?, ?> record, @Nullable Acknowledgment acknowledgment, @Nullable Consumer<?, ?> consumer,
+			@Nullable Type payloadType);
 
 	/**
 	 * Convert a message to a producer record.
@@ -52,6 +53,6 @@ public interface RecordMessageConverter extends MessageConverter {
 	 * @param defaultTopic the default topic to use if no header found.
 	 * @return the producer record.
 	 */
-	ProducerRecord<?, ?> fromMessage(Message<?> message, String defaultTopic);
+	ProducerRecord<?, ?> fromMessage(Message<?> message, @Nullable String defaultTopic);
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2024 the original author or authors.
+ * Copyright 2023-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,6 +88,14 @@ public interface EmbeddedKafkaBroker extends InitializingBean, DisposableBean {
 	 * @return this broker.
 	 */
 	EmbeddedKafkaBroker brokerListProperty(String brokerListProperty);
+
+	/**
+	 * Set the timeout in seconds for admin operations (e.g. topic creation, close).
+	 * @param adminTimeout the timeout.
+	 * @return the {@link EmbeddedKafkaBroker}
+	 * @since 2.8.5
+	 */
+	EmbeddedKafkaBroker adminTimeout(int adminTimeout);
 
 	/**
 	 * Get the bootstrap server addresses as a String.

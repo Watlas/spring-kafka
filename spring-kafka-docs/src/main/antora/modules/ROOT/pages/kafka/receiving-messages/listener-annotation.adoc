@@ -5,7 +5,7 @@ The `@KafkaListener` annotation is used to designate a bean method as a listener
 The bean is wrapped in a `MessagingMessageListenerAdapter` configured with various features, such as converters to convert the data, if necessary, to match the method parameters.
 
 You can configure most attributes on the annotation with SpEL by using `#{...}` or property placeholders (`${...}`).
-See the https://docs.spring.io/spring-kafka/api/org/springframework/kafka/annotation/KafkaListener.html[Javadoc] for more information.
+See the javadoc:org.springframework.kafka.annotation.KafkaListener[Javadoc] for more information.
 
 [[record-listener]]
 == Record Listeners
@@ -251,7 +251,7 @@ public KafkaListenerContainerFactory<?> batchFactory() {
     ConcurrentKafkaListenerContainerFactory<Integer, String> factory =
             new ConcurrentKafkaListenerContainerFactory<>();
     factory.setConsumerFactory(consumerFactory());
-    factory.setBatchListener(true);  // <<<<<<<<<<<<<<<<<<<<<<<<<  
+    factory.setBatchListener(true);
    return factory;
 }
 ----
@@ -342,7 +342,7 @@ public void pollResults(ConsumerRecords<?, ?> records) {
 ----
 
 IMPORTANT: If the container factory has a `RecordFilterStrategy` configured, it is ignored for `ConsumerRecords<?, ?>` listeners, with a `WARN` log message emitted.
-Records can only be filtered with a batch listener if the `<List<?>>` form of listener is used.
+Records can only be filtered with a batch listener if the `List<?>` form of listener is used.
 By default, records are filtered one-at-a-time; starting with version 2.8, you can override `filterBatch` to filter the entire batch in one call.
 
 [[annotation-properties]]

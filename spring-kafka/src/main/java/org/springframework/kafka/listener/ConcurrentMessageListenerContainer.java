@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2024 the original author or authors.
+ * Copyright 2015-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.common.Metric;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationEventPublisher;
@@ -38,7 +39,6 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.event.ConcurrentContainerStoppedEvent;
 import org.springframework.kafka.event.ConsumerStoppedEvent.Reason;
 import org.springframework.kafka.support.TopicPartitionOffset;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -73,7 +73,7 @@ public class ConcurrentMessageListenerContainer<K, V> extends AbstractMessageLis
 
 	private boolean alwaysClientIdSuffix = true;
 
-	private volatile Reason reason;
+	private volatile @Nullable Reason reason;
 
 	/**
 	 * Construct an instance with the supplied configuration properties.
@@ -82,7 +82,7 @@ public class ConcurrentMessageListenerContainer<K, V> extends AbstractMessageLis
 	 * @param consumerFactory the consumer factory.
 	 * @param containerProperties the container properties.
 	 */
-	public ConcurrentMessageListenerContainer(ConsumerFactory<? super K, ? super V> consumerFactory,
+	public ConcurrentMessageListenerContainer(@Nullable ConsumerFactory<? super K, ? super V> consumerFactory,
 			ContainerProperties containerProperties) {
 
 		super(consumerFactory, containerProperties);
@@ -244,7 +244,7 @@ public class ConcurrentMessageListenerContainer<K, V> extends AbstractMessageLis
 		if (!isRunning()) {
 			checkTopics();
 			ContainerProperties containerProperties = getContainerProperties();
-			TopicPartitionOffset[] topicPartitions = containerProperties.getTopicPartitions();
+			@Nullable TopicPartitionOffset @Nullable [] topicPartitions = containerProperties.getTopicPartitions();
 			if (topicPartitions != null && this.concurrency > topicPartitions.length) {
 				this.logger.warn(() -> "When specific partitions are provided, the concurrency must be less than or "
 						+ "equal to the number of partitions; reduced from " + this.concurrency + " to "
@@ -302,7 +302,7 @@ public class ConcurrentMessageListenerContainer<K, V> extends AbstractMessageLis
 	}
 
 	private KafkaMessageListenerContainer<K, V> constructContainer(ContainerProperties containerProperties,
-			@Nullable TopicPartitionOffset[] topicPartitions, int i) {
+			@Nullable TopicPartitionOffset @Nullable [] topicPartitions, int i) {
 
 		KafkaMessageListenerContainer<K, V> container;
 		if (topicPartitions == null) {
@@ -315,9 +315,8 @@ public class ConcurrentMessageListenerContainer<K, V> extends AbstractMessageLis
 		return container;
 	}
 
-	@Nullable
-	private TopicPartitionOffset[] partitionSubset(ContainerProperties containerProperties, int index) {
-		TopicPartitionOffset[] topicPartitions = containerProperties.getTopicPartitions();
+	private @Nullable TopicPartitionOffset @Nullable [] partitionSubset(ContainerProperties containerProperties, int index) {
+		@Nullable TopicPartitionOffset @Nullable [] topicPartitions = containerProperties.getTopicPartitions();
 		if (topicPartitions == null) {
 			return null;
 		}
@@ -434,7 +433,8 @@ public class ConcurrentMessageListenerContainer<K, V> extends AbstractMessageLis
 		}
 	}
 
-	private void publishConcurrentContainerStoppedEvent(Reason reason) {
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
+	private void publishConcurrentContainerStoppedEvent(@Nullable Reason reason) {
 		ApplicationEventPublisher eventPublisher = getApplicationEventPublisher();
 		if (eventPublisher != null) {
 			eventPublisher.publishEvent(new ConcurrentContainerStoppedEvent(this, reason));

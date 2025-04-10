@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2024 the original author or authors.
+ * Copyright 2014-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanInitializationException;
@@ -47,7 +48,6 @@ import org.springframework.kafka.listener.ListenerContainerRegistry;
 import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.support.EndpointHandlerMethod;
 import org.springframework.kafka.support.EndpointHandlerMultiMethod;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
@@ -89,7 +89,7 @@ public class KafkaListenerEndpointRegistry implements ListenerContainerRegistry,
 
 	private int phase = AbstractMessageListenerContainer.DEFAULT_PHASE;
 
-	private ConfigurableApplicationContext applicationContext;
+	private @Nullable ConfigurableApplicationContext applicationContext;
 
 	private boolean contextRefreshed;
 
@@ -224,8 +224,10 @@ public class KafkaListenerEndpointRegistry implements ListenerContainerRegistry,
 
 	private void refreshContextContainers() {
 		this.unregisteredContainers.clear();
-		this.applicationContext.getBeansOfType(MessageListenerContainer.class, true, false).values()
-				.forEach(container -> this.unregisteredContainers.put(container.getListenerId(), container));
+		if (this.applicationContext != null) {
+			this.applicationContext.getBeansOfType(MessageListenerContainer.class, true, false).values()
+					.forEach(container -> this.unregisteredContainers.put(container.getListenerId(), container));
+		}
 	}
 
 	/**
@@ -316,9 +318,9 @@ public class KafkaListenerEndpointRegistry implements ListenerContainerRegistry,
 	 * @param factory the {@link KafkaListenerContainerFactory} to use.
 	 * @return the {@link MessageListenerContainer}.
 	 */
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
 	protected MessageListenerContainer createListenerContainer(KafkaListenerEndpoint endpoint,
 			KafkaListenerContainerFactory<?> factory) {
-
 		if (endpoint instanceof MultiMethodKafkaListenerEndpoint<?, ?> mmkle) {
 			Object bean = mmkle.getBean();
 			if (bean instanceof EndpointHandlerMultiMethod ehmm) {

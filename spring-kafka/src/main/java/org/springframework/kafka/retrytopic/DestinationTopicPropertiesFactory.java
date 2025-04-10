@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2024 the original author or authors.
+ * Copyright 2018-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,10 +25,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BiPredicate;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.classify.BinaryExceptionClassifier;
 import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.retrytopic.DestinationTopic.Type;
-import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 
 /**
@@ -116,7 +117,7 @@ public class DestinationTopicPropertiesFactory {
 	 * @param dltRoutingRules the specification of which DLT should be used for the particular exception type
 	 * @since 3.2.0
 	 */
-	public DestinationTopicPropertiesFactory(String retryTopicSuffix, String dltSuffix, List<Long> backOffValues,
+	public DestinationTopicPropertiesFactory(@Nullable String retryTopicSuffix, @Nullable String dltSuffix, List<Long> backOffValues,
 			BinaryExceptionClassifier exceptionClassifier,
 			int numPartitions, KafkaOperations<?, ?> kafkaOperations,
 			DltStrategy dltStrategy,
@@ -252,7 +253,7 @@ public class DestinationTopicPropertiesFactory {
 
 		private final String dltSuffix;
 
-		public DestinationTopicSuffixes(String retryTopicSuffix, String dltSuffix) {
+		public DestinationTopicSuffixes(@Nullable String retryTopicSuffix, @Nullable String dltSuffix) {
 			this.retryTopicSuffix = StringUtils.hasText(retryTopicSuffix)
 					? retryTopicSuffix
 					: RetryTopicConstants.DEFAULT_RETRY_SUFFIX;

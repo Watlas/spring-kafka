@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2024 the original author or authors.
+ * Copyright 2017-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -56,6 +58,7 @@ import org.apache.kafka.common.config.ConfigResource.Type;
 import org.apache.kafka.common.errors.InvalidPartitionsException;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -65,7 +68,6 @@ import org.springframework.core.env.EnvironmentCapable;
 import org.springframework.core.log.LogAccessor;
 import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.support.TopicForRetryable;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -78,6 +80,7 @@ import org.springframework.util.Assert;
  * @author Sanghyeok An
  * @author Valentina Armenise
  * @author Anders Swanson
+ * @author Omer Celik
  *
  * @since 1.3
  */
@@ -95,9 +98,11 @@ public class KafkaAdmin extends KafkaResourceFactory
 
 	private static final AtomicInteger CLIENT_ID_COUNTER = new AtomicInteger();
 
+	private final Lock clusterIdLock = new ReentrantLock();
+
 	private final Map<String, Object> configs;
 
-	private ApplicationContext applicationContext;
+	private @Nullable ApplicationContext applicationContext;
 
 	private Predicate<NewTopic> createOrModifyTopic = nt -> true;
 
@@ -113,7 +118,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 
 	private boolean modifyTopicConfigs;
 
-	private String clusterId;
+	private @Nullable String clusterId;
 
 	/**
 	 * Create an instance with an {@link Admin} based on the supplied
@@ -222,7 +227,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 	 * @return the cluster id.
 	 * @since 3.1.8
 	 */
-	public String getClusterId() {
+	public @Nullable String getClusterId() {
 		return this.clusterId;
 	}
 
@@ -267,12 +272,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 			}
 			if (adminClient != null) {
 				try {
-					synchronized (this) {
-						if (this.clusterId != null) {
-							this.clusterId = adminClient.describeCluster().clusterId().get(this.operationTimeout,
-									TimeUnit.SECONDS);
-						}
-					}
+					updateClusterId(adminClient);
 					addOrModifyTopicsIfNeeded(adminClient, newTopics);
 					return true;
 				}
@@ -297,6 +297,19 @@ public class KafkaAdmin extends KafkaResourceFactory
 		return false;
 	}
 
+	private void updateClusterId(Admin adminClient) throws InterruptedException, ExecutionException, TimeoutException {
+		try {
+			this.clusterIdLock.lock();
+			if (this.clusterId != null) {
+				this.clusterId = adminClient.describeCluster().clusterId().get(this.operationTimeout,
+						TimeUnit.SECONDS);
+			}
+		}
+		finally {
+			this.clusterIdLock.unlock();
+		}
+	}
+
 	/**
 	 * Return a collection of {@link NewTopic}s to create or modify. The default
 	 * implementation retrieves all {@link NewTopic} beans in the application context and
@@ -308,6 +321,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 	 * @see #setCreateOrModifyTopic(Predicate)
 	 */
 	protected Collection<NewTopic> newTopics() {
+		Assert.state(this.applicationContext != null, "'applicationContext' cannot be null");
 		Map<String, NewTopic> newTopicsMap = new HashMap<>(
 				this.applicationContext.getBeansOfType(NewTopic.class, false, false));
 		Map<String, NewTopics> wrappers = this.applicationContext.getBeansOfType(NewTopics.class, false, false);
@@ -537,18 +551,20 @@ public class KafkaAdmin extends KafkaResourceFactory
 		topicInfo.topicNameValues().forEach((n, f) -> {
 			NewTopic topic = topicNameToTopic.get(n);
 			try {
-				TopicDescription topicDescription = f.get(this.operationTimeout, TimeUnit.SECONDS);
-				if (topic.numPartitions() >= 0 && topic.numPartitions() < topicDescription.partitions().size()) {
-					LOGGER.info(() -> String.format(
-						"Topic '%s' exists but has a different partition count: %d not %d", n,
-						topicDescription.partitions().size(), topic.numPartitions()));
-				}
-				else if (topic.numPartitions() > topicDescription.partitions().size()) {
-					LOGGER.info(() -> String.format(
-						"Topic '%s' exists but has a different partition count: %d not %d, increasing "
-						+ "if the broker supports it", n,
-						topicDescription.partitions().size(), topic.numPartitions()));
-					topicsToModify.put(n, NewPartitions.increaseTo(topic.numPartitions()));
+				if (topic != null) {
+					TopicDescription topicDescription = f.get(this.operationTimeout, TimeUnit.SECONDS);
+					if (topic.numPartitions() >= 0 && topic.numPartitions() < topicDescription.partitions().size()) {
+						LOGGER.info(() -> String.format(
+								"Topic '%s' exists but has a different partition count: %d not %d", n,
+								topicDescription.partitions().size(), topic.numPartitions()));
+					}
+					else if (topic.numPartitions() > topicDescription.partitions().size()) {
+						LOGGER.info(() -> String.format(
+								"Topic '%s' exists but has a different partition count: %d not %d, increasing "
+										+ "if the broker supports it", n,
+								topicDescription.partitions().size(), topic.numPartitions()));
+						topicsToModify.put(n, NewPartitions.increaseTo(topic.numPartitions()));
+					}
 				}
 			}
 			catch (@SuppressWarnings("unused") InterruptedException e) {
@@ -581,7 +597,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 				LOGGER.debug(e.getCause(), "Failed to create topics");
 			}
 			else {
-				LOGGER.error(e.getCause(), "Failed to create topics");
+				LOGGER.error(e.getCause() != null ? e.getCause() : e, "Failed to create topics");
 				throw new KafkaException("Failed to create topics", e.getCause()); // NOSONAR
 			}
 		}
@@ -604,7 +620,7 @@ public class KafkaAdmin extends KafkaResourceFactory
 				LOGGER.debug(e.getCause(), "Failed to create partitions");
 			}
 			else {
-				LOGGER.error(e.getCause(), "Failed to create partitions");
+				LOGGER.error(e.getCause() != null ? e.getCause() : e, "Failed to create partitions");
 				if (!(e.getCause() instanceof UnsupportedVersionException)) {
 					throw new KafkaException("Failed to create partitions", e.getCause()); // NOSONAR
 				}

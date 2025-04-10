@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2024 the original author or authors.
+ * Copyright 2019-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,11 @@
 
 package org.springframework.kafka.test.condition;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.StringReader;
 import java.lang.reflect.AnnotatedElement;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Properties;
 
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.ConditionEvaluationResult;
 import org.junit.jupiter.api.extension.ExecutionCondition;
@@ -37,15 +33,11 @@ import org.junit.jupiter.api.extension.ParameterResolutionException;
 import org.junit.jupiter.api.extension.ParameterResolver;
 
 import org.springframework.core.annotation.AnnotatedElementUtils;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
-import org.springframework.kafka.test.EmbeddedKafkaKraftBroker;
-import org.springframework.kafka.test.EmbeddedKafkaZKBroker;
+import org.springframework.kafka.test.EmbeddedKafkaBrokerFactory;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.util.Assert;
-import org.springframework.util.StringUtils;
 
 /**
  * JUnit5 condition for an embedded broker.
@@ -63,7 +55,7 @@ public class EmbeddedKafkaCondition implements ExecutionCondition, AfterAllCallb
 
 	private static final String EMBEDDED_BROKER = "embedded-kafka";
 
-	private static final ThreadLocal<EmbeddedKafkaBroker> BROKERS = new ThreadLocal<>();
+	private static final ThreadLocal<@Nullable EmbeddedKafkaBroker> BROKERS = new ThreadLocal<>();
 
 	@Override
 	public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext extensionContext)
@@ -117,101 +109,36 @@ public class EmbeddedKafkaCondition implements ExecutionCondition, AfterAllCallb
 	private boolean springTestContext(AnnotatedElement annotatedElement) {
 		return AnnotatedElementUtils.findAllMergedAnnotations(annotatedElement, ExtendWith.class)
 				.stream()
-				.filter(extended -> Arrays.asList(extended.value()).contains(SpringExtension.class))
-				.findFirst()
-				.isPresent();
+				.map(ExtendWith::value)
+				.flatMap(Arrays::stream)
+				.anyMatch(SpringExtension.class::isAssignableFrom);
 	}
 
-	@SuppressWarnings("unchecked")
 	private EmbeddedKafkaBroker createBroker(EmbeddedKafka embedded) {
-		int[] ports = setupPorts(embedded);
-		EmbeddedKafkaBroker broker;
-		if (embedded.kraft()) {
-			broker = kraftBroker(embedded, ports);
-		}
-		else {
-			broker = zkBroker(embedded, ports);
-		}
-		Properties properties = new Properties();
-
-		for (String pair : embedded.brokerProperties()) {
-			if (!StringUtils.hasText(pair)) {
-				continue;
-			}
-			try {
-				properties.load(new StringReader(pair));
-			}
-			catch (Exception ex) {
-				throw new IllegalStateException("Failed to load broker property from [" + pair + "]",
-						ex);
-			}
-		}
-		if (StringUtils.hasText(embedded.brokerPropertiesLocation())) {
-			Resource propertiesResource = new PathMatchingResourcePatternResolver()
-					.getResource(embedded.brokerPropertiesLocation());
-			if (!propertiesResource.exists()) {
-				throw new IllegalStateException(
-						"Failed to load broker properties from [" + propertiesResource
-								+ "]: resource does not exist.");
-			}
-			try (InputStream in = propertiesResource.getInputStream()) {
-				Properties p = new Properties();
-				p.load(in);
-				p.forEach(properties::putIfAbsent);
-			}
-			catch (IOException ex) {
-				throw new IllegalStateException(
-						"Failed to load broker properties from [" + propertiesResource + "]", ex);
-			}
-		}
-		broker.brokerProperties((Map<String, String>) (Map<?, ?>) properties);
-		if (StringUtils.hasText(embedded.bootstrapServersProperty())) {
-			broker.brokerListProperty(embedded.bootstrapServersProperty());
-		}
-		broker.afterPropertiesSet();
-		return broker;
+		return EmbeddedKafkaBrokerFactory.create(embedded);
 	}
 
-	private EmbeddedKafkaBroker kraftBroker(EmbeddedKafka embedded, int[] ports) {
-		return new EmbeddedKafkaKraftBroker(embedded.count(), embedded.partitions(), embedded.topics())
-				.kafkaPorts(ports)
-				.adminTimeout(embedded.adminTimeout());
-	}
-
-	private EmbeddedKafkaBroker zkBroker(EmbeddedKafka embedded, int[] ports) {
-		return new EmbeddedKafkaZKBroker(embedded.count(), embedded.controlledShutdown(),
-				embedded.partitions(), embedded.topics())
-						.zkPort(embedded.zookeeperPort())
-						.kafkaPorts(ports)
-						.zkConnectionTimeout(embedded.zkConnectionTimeout())
-						.zkSessionTimeout(embedded.zkSessionTimeout())
-						.adminTimeout(embedded.adminTimeout());
-	}
-
-	private int[] setupPorts(EmbeddedKafka embedded) {
-		int[] ports = embedded.ports();
-		if (embedded.count() > 1 && ports.length == 1 && ports[0] == 0) {
-			ports = new int[embedded.count()];
-		}
-		return ports;
-	}
-
-	private EmbeddedKafkaBroker getBrokerFromStore(ExtensionContext context) {
-		return getParentStore(context).get(EMBEDDED_BROKER, EmbeddedKafkaBroker.class) == null
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation.
+	private @Nullable EmbeddedKafkaBroker getBrokerFromStore(ExtensionContext context) {
+		Store parentStore = getParentStore(context);
+		EmbeddedKafkaBroker embeddedKafkaBrokerFromParentStore = parentStore == null ? null :
+				parentStore
+						.get(EMBEDDED_BROKER, EmbeddedKafkaBroker.class);
+		return embeddedKafkaBrokerFromParentStore == null
 				? getStore(context).get(EMBEDDED_BROKER, EmbeddedKafkaBroker.class)
-				: getParentStore(context).get(EMBEDDED_BROKER, EmbeddedKafkaBroker.class);
+				: embeddedKafkaBrokerFromParentStore;
 	}
 
 	private Store getStore(ExtensionContext context) {
 		return context.getStore(Namespace.create(getClass(), context));
 	}
 
-	private Store getParentStore(ExtensionContext context) {
-		ExtensionContext parent = context.getParent().get();
-		return parent.getStore(Namespace.create(getClass(), parent));
+	private @Nullable Store getParentStore(ExtensionContext context) {
+		ExtensionContext parent = context.getParent().orElse(null);
+		return parent == null ? null : parent.getStore(Namespace.create(getClass(), parent));
 	}
 
-	public static EmbeddedKafkaBroker getBroker() {
+	public static @Nullable EmbeddedKafkaBroker getBroker() {
 		return BROKERS.get();
 	}
 

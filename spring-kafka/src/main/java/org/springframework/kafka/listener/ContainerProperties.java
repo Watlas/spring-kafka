@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,8 +26,10 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
+import io.micrometer.observation.ObservationRegistry;
 import org.aopalliance.aop.Advice;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.aop.framework.Advised;
 import org.springframework.aop.framework.ProxyFactory;
@@ -36,7 +38,6 @@ import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.kafka.support.TopicPartitionOffset;
 import org.springframework.kafka.support.micrometer.KafkaListenerObservationConvention;
 import org.springframework.kafka.transaction.KafkaAwareTransactionManager;
-import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -238,12 +239,12 @@ public class ContainerProperties extends ConsumerProperties {
 	 * The message listener; must be a {@link org.springframework.kafka.listener.MessageListener}
 	 * or {@link org.springframework.kafka.listener.AcknowledgingMessageListener}.
 	 */
-	private Object messageListener;
+	private @Nullable Object messageListener;
 
 	/**
 	 * The executor for threads that poll the consumer.
 	 */
-	private AsyncTaskExecutor listenerTaskExecutor;
+	private @Nullable AsyncTaskExecutor listenerTaskExecutor;
 
 	/**
 	 * The timeout for shutting down the container. This is the maximum amount of
@@ -252,22 +253,22 @@ public class ContainerProperties extends ConsumerProperties {
 	 */
 	private long shutdownTimeout = DEFAULT_SHUTDOWN_TIMEOUT;
 
-	private Long idleEventInterval;
+	private @Nullable Long idleEventInterval;
 
-	private Long idlePartitionEventInterval;
+	private @Nullable Long idlePartitionEventInterval;
 
 	private double idleBeforeDataMultiplier = DEFAULT_IDLE_BEFORE_DATA_MULTIPLIER;
 
 	@Deprecated(since = "3.2")
-	private PlatformTransactionManager transactionManager;
+	private @Nullable PlatformTransactionManager transactionManager;
 
-	private KafkaAwareTransactionManager<?, ?> kafkaAwareTransactionManager;
+	private @Nullable KafkaAwareTransactionManager<?, ?> kafkaAwareTransactionManager;
 
 	private boolean batchRecoverAfterRollback = false;
 
 	private int monitorInterval = DEFAULT_MONITOR_INTERVAL;
 
-	private TaskScheduler scheduler;
+	private @Nullable TaskScheduler scheduler;
 
 	private float noPollThreshold = DEFAULT_NO_POLL_THRESHOLD;
 
@@ -281,9 +282,11 @@ public class ContainerProperties extends ConsumerProperties {
 
 	private boolean observationEnabled;
 
+	private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
+
 	private Duration consumerStartTimeout = DEFAULT_CONSUMER_START_TIMEOUT;
 
-	private Boolean subBatchPerPartition;
+	private @Nullable Boolean subBatchPerPartition;
 
 	private AssignmentCommitOption assignmentCommitOption = AssignmentCommitOption.LATEST_ONLY_NO_TX;
 
@@ -291,7 +294,7 @@ public class ContainerProperties extends ConsumerProperties {
 
 	private EOSMode eosMode = EOSMode.V2;
 
-	private TransactionDefinition transactionDefinition;
+	private @Nullable TransactionDefinition transactionDefinition;
 
 	private boolean stopContainerWhenFenced;
 
@@ -301,7 +304,7 @@ public class ContainerProperties extends ConsumerProperties {
 
 	private boolean pauseImmediate;
 
-	private KafkaListenerObservationConvention observationConvention;
+	private @Nullable KafkaListenerObservationConvention observationConvention;
 
 	private Duration pollTimeoutWhilePaused = DEFAULT_PAUSED_POLL_TIMEOUT;
 
@@ -324,7 +327,7 @@ public class ContainerProperties extends ConsumerProperties {
 	 * @param topicPattern the pattern.
 	 * @see org.apache.kafka.clients.CommonClientConfigs#METADATA_MAX_AGE_CONFIG
 	 */
-	public ContainerProperties(Pattern topicPattern) {
+	public ContainerProperties(@Nullable Pattern topicPattern) {
 		super(topicPattern);
 	}
 
@@ -483,7 +486,7 @@ public class ContainerProperties extends ConsumerProperties {
 		return this.ackTime;
 	}
 
-	public Object getMessageListener() {
+	public @Nullable Object getMessageListener() {
 		return this.messageListener;
 	}
 
@@ -714,6 +717,20 @@ public class ContainerProperties extends ConsumerProperties {
 	 */
 	public void setObservationEnabled(boolean observationEnabled) {
 		this.observationEnabled = observationEnabled;
+	}
+
+	public ObservationRegistry getObservationRegistry() {
+		return this.observationRegistry;
+	}
+
+	/**
+	 * Configure the {@link ObservationRegistry} to use for recording observations.
+	 * @param observationRegistry the observation registry to use.
+	 * @since 3.3.1
+	 */
+	public void setObservationRegistry(ObservationRegistry observationRegistry) {
+		Assert.notNull(observationRegistry, "'observationRegistry' must not be null");
+		this.observationRegistry = observationRegistry;
 	}
 
 	/**
@@ -1011,14 +1028,16 @@ public class ContainerProperties extends ConsumerProperties {
 				this.adviceChain.forEach(advised::addAdvice);
 			}
 			else {
-				ProxyFactory pf = new ProxyFactory(this.messageListener);
-				this.adviceChain.forEach(pf::addAdvice);
-				this.messageListener = pf.getProxy();
+				if (this.messageListener != null) {
+					ProxyFactory pf = new ProxyFactory(this.messageListener);
+					this.adviceChain.forEach(pf::addAdvice);
+					this.messageListener = pf.getProxy();
+				}
 			}
 		}
 	}
 
-	public KafkaListenerObservationConvention getObservationConvention() {
+	public @Nullable KafkaListenerObservationConvention getObservationConvention() {
 		return this.observationConvention;
 	}
 
@@ -1117,6 +1136,9 @@ public class ContainerProperties extends ConsumerProperties {
 				+ "\n observationEnabled=" + this.observationEnabled
 				+ (this.observationConvention != null
 						? "\n observationConvention=" + this.observationConvention
+						: "")
+				+ (this.observationRegistry != null
+						? "\n observationRegistry=" + this.observationRegistry
 						: "")
 				+ "\n restartAfterAuthExceptions=" + this.restartAfterAuthExceptions
 				+ "\n]";

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2023 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,11 +18,11 @@ package org.springframework.kafka.listener.adapter;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.kafka.listener.AcknowledgingConsumerAwareMessageListener;
 import org.springframework.kafka.listener.MessageListener;
 import org.springframework.kafka.support.Acknowledgment;
-import org.springframework.lang.Nullable;
 
 /**
  * A {@link MessageListener} adapter that implements filter logic
@@ -66,7 +66,7 @@ public class FilteringMessageListenerAdapter<K, V>
 
 	@Override
 	public void onMessage(ConsumerRecord<K, V> consumerRecord, @Nullable Acknowledgment acknowledgment,
-			Consumer<?, ?> consumer) {
+			@Nullable Consumer<?, ?> consumer) {
 
 		if (!filter(consumerRecord)) {
 			switch (this.delegateType) {
@@ -104,12 +104,12 @@ public class FilteringMessageListenerAdapter<K, V>
 	}
 
 	@Override
-	public void onMessage(ConsumerRecord<K, V> data, Acknowledgment acknowledgment) {
+	public void onMessage(ConsumerRecord<K, V> data, @Nullable Acknowledgment acknowledgment) {
 		onMessage(data, acknowledgment, null); // NOSONAR
 	}
 
 	@Override
-	public void onMessage(ConsumerRecord<K, V> data, Consumer<?, ?> consumer) {
+	public void onMessage(ConsumerRecord<K, V> data, @Nullable Consumer<?, ?> consumer) {
 		onMessage(data, null, consumer);
 	}
 

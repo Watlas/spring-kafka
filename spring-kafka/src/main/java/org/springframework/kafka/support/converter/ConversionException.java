@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2021 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,9 +21,9 @@ import java.util.Collections;
 import java.util.List;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.kafka.KafkaException;
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 
 /**
@@ -35,18 +35,18 @@ import org.springframework.messaging.Message;
 @SuppressWarnings("serial")
 public class ConversionException extends KafkaException {
 
-	private transient ConsumerRecord<?, ?> record;
+	private transient @Nullable ConsumerRecord<?, ?> record;
 
-	private transient List<ConsumerRecord<?, ?>> records = new ArrayList<>();
+	private transient @Nullable List<ConsumerRecord<?, ?>> records = new ArrayList<>();
 
-	private transient Message<?> message;
+	private transient @Nullable Message<?> message;
 
 	/**
 	 * Construct an instance with the provided properties.
 	 * @param message A text message describing the reason.
 	 * @param cause the cause.
 	 */
-	public ConversionException(String message, Throwable cause) {
+	public ConversionException(String message, @Nullable Throwable cause) {
 		super(message, cause);
 		this.record = null;
 		this.message = null;
@@ -75,7 +75,9 @@ public class ConversionException extends KafkaException {
 	public ConversionException(String message, List<ConsumerRecord<?, ?>> records, Throwable cause) {
 		super(message, cause);
 		this.record = null;
-		this.records.addAll(records);
+		if (this.records != null) {
+			this.records.addAll(records);
+		}
 		this.message = null;
 	}
 

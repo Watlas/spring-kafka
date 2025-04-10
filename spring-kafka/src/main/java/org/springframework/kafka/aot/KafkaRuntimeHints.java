@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-2024 the original author or authors.
+ * Copyright 2022-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import org.apache.kafka.common.protocol.Message;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.AppInfoParser.AppInfo;
 import org.apache.kafka.common.utils.ImplicitLinkedHashCollection;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.aop.framework.AopProxyUtils;
 import org.springframework.aot.hint.MemberCategory;
@@ -62,7 +63,6 @@ import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.kafka.support.serializer.ParseStringDeserializer;
 import org.springframework.kafka.support.serializer.StringOrBytesSerializer;
 import org.springframework.kafka.support.serializer.ToStringSerializer;
-import org.springframework.lang.Nullable;
 
 /**
  * {@link RuntimeHintsRegistrar} for Spring for Apache Kafka.
@@ -74,7 +74,6 @@ import org.springframework.lang.Nullable;
  */
 public class KafkaRuntimeHints implements RuntimeHintsRegistrar {
 
-	@SuppressWarnings("deprecation")
 	@Override
 	public void registerHints(RuntimeHints hints, @Nullable ClassLoader classLoader) {
 		ReflectionHints reflectionHints = hints.reflection();
@@ -106,8 +105,7 @@ public class KafkaRuntimeHints implements RuntimeHintsRegistrar {
 					KafkaListenerAnnotationBeanPostProcessor.class)
 				.forEach(type -> reflectionHints.registerType(type,
 						builder -> builder.withMembers(MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
-								MemberCategory.INVOKE_DECLARED_METHODS,
-								MemberCategory.INTROSPECT_PUBLIC_METHODS)));
+								MemberCategory.INVOKE_DECLARED_METHODS)));
 
 		Stream.of(
 					KafkaBootstrapConfiguration.class,
@@ -117,9 +115,6 @@ public class KafkaRuntimeHints implements RuntimeHintsRegistrar {
 
 		Stream.of(
 					AppInfo.class,
-					// standard partitioners
-					org.apache.kafka.clients.producer.internals.DefaultPartitioner.class,
-					org.apache.kafka.clients.producer.UniformStickyPartitioner.class,
 					// standard serialization
 					// Spring serialization
 					DelegatingByTopicDeserializer.class,
@@ -144,8 +139,7 @@ public class KafkaRuntimeHints implements RuntimeHintsRegistrar {
 				"sun.security.provider.ConfigFile",
 				"org.apache.kafka.streams.processor.internals.assignment.StickyTaskAssignor",
 				"org.apache.kafka.streams.processor.internals.assignment.FallbackPriorTaskAssignor",
-				"org.apache.kafka.streams.state.BuiltInDslStoreSuppliers$RocksDBDslStoreSuppliers",
-				"org.apache.kafka.streams.state.BuiltInDslStoreSuppliers$InMemoryDslStoreSuppliers")
+				"org.apache.kafka.streams.errors.LogAndFailProcessingExceptionHandler")
 			.forEach(type -> reflectionHints.registerTypeIfPresent(classLoader, type, builder ->
 					builder.withMembers(MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS)));
 	}

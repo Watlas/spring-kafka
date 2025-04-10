@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2021 the original author or authors.
+ * Copyright 2014-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +18,12 @@ package org.springframework.kafka.config;
 
 import java.util.Collection;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.TopicPartitionOffset;
+import org.springframework.util.Assert;
 
 /**
  * A {@link KafkaListenerContainerFactory} implementation to build a
@@ -28,10 +31,10 @@ import org.springframework.kafka.support.TopicPartitionOffset;
  * <p>
  * This should be the default for most users and a good transition paths for those that
  * are used to building such container definitions manually.
- *
+ * <p>
  * This factory is primarily for building containers for {@code KafkaListener} annotated
  * methods but can also be used to create any container.
- *
+ * <p>
  * Only containers for {@code KafkaListener} annotated methods are added to the
  * {@code KafkaListenerEndpointRegistry}.
  *
@@ -46,7 +49,7 @@ import org.springframework.kafka.support.TopicPartitionOffset;
 public class ConcurrentKafkaListenerContainerFactory<K, V>
 		extends AbstractKafkaListenerContainerFactory<ConcurrentMessageListenerContainer<K, V>, K, V> {
 
-	private Integer concurrency;
+	private @Nullable Integer concurrency;
 
 	/**
 	 * Specify the container concurrency.
@@ -66,6 +69,7 @@ public class ConcurrentKafkaListenerContainerFactory<K, V>
 		}
 		else {
 			Collection<String> topics = endpoint.getTopics();
+			Assert.state(topics != null, "'topics' must not be null");
 			if (!topics.isEmpty()) { // NOSONAR
 				ContainerProperties properties = new ContainerProperties(topics.toArray(new String[0]));
 				return new ConcurrentMessageListenerContainer<>(getConsumerFactory(), properties);

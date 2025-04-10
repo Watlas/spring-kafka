@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-2023 the original author or authors.
+ * Copyright 2022-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.logging.LogFactory;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
@@ -53,7 +54,6 @@ import org.springframework.kafka.listener.ListenerContainerPauseService;
 import org.springframework.kafka.listener.ListenerContainerRegistry;
 import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.support.JavaUtils;
-import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.util.Assert;
 import org.springframework.util.backoff.BackOff;
@@ -75,10 +75,12 @@ import org.springframework.util.backoff.FixedBackOff;
 */
 public class RetryTopicConfigurationSupport implements ApplicationContextAware, SmartInitializingSingleton {
 
+	@SuppressWarnings("this-escape")
 	private final RetryTopicComponentFactory componentFactory = createComponentFactory();
 
 	private final LogAccessor logger = new LogAccessor(LogFactory.getLog(getClass()));
 
+	@SuppressWarnings("NullAway.Init")
 	private ApplicationContext applicationContext;
 
 	@Override
@@ -349,7 +351,7 @@ public class RetryTopicConfigurationSupport implements ApplicationContextAware, 
 		@Nullable
 		private BackOff backOff;
 
-		@Nullable
+		@SuppressWarnings("NullAway.Init")
 		private Class<? extends Exception>[] retryableExceptions;
 
 		/**
@@ -385,7 +387,6 @@ public class RetryTopicConfigurationSupport implements ApplicationContextAware, 
 			return this.backOff;
 		}
 
-		@Nullable
 		Class<? extends Exception>[] getRetryableExceptions() {
 			return this.retryableExceptions;
 		}

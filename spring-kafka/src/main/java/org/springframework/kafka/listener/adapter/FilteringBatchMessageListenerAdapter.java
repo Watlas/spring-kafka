@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +20,12 @@ import java.util.List;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.kafka.listener.BatchAcknowledgingConsumerAwareMessageListener;
 import org.springframework.kafka.listener.BatchMessageListener;
 import org.springframework.kafka.listener.ListenerType;
 import org.springframework.kafka.support.Acknowledgment;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -78,7 +78,7 @@ public class FilteringBatchMessageListenerAdapter<K, V>
 
 	@Override
 	public void onMessage(List<ConsumerRecord<K, V>> records, @Nullable Acknowledgment acknowledgment,
-			Consumer<?, ?> consumer) {
+			@Nullable Consumer<?, ?> consumer) {
 
 		final RecordFilterStrategy<K, V> recordFilterStrategy = getRecordFilterStrategy();
 		final List<ConsumerRecord<K, V>> consumerRecords = recordFilterStrategy.filterBatch(records);
@@ -100,8 +100,8 @@ public class FilteringBatchMessageListenerAdapter<K, V>
 		}
 	}
 
-	private void invokeDelegate(List<ConsumerRecord<K, V>> consumerRecords, Acknowledgment acknowledgment,
-			Consumer<?, ?> consumer) {
+	private void invokeDelegate(List<ConsumerRecord<K, V>> consumerRecords, @Nullable Acknowledgment acknowledgment,
+			@Nullable Consumer<?, ?> consumer) {
 
 		switch (this.delegateType) {
 			case ACKNOWLEDGING_CONSUMER_AWARE:
@@ -129,12 +129,12 @@ public class FilteringBatchMessageListenerAdapter<K, V>
 	}
 
 	@Override
-	public void onMessage(List<ConsumerRecord<K, V>> data, Acknowledgment acknowledgment) {
+	public void onMessage(List<ConsumerRecord<K, V>> data, @Nullable Acknowledgment acknowledgment) {
 		onMessage(data, acknowledgment, null); // NOSONAR
 	}
 
 	@Override
-	public void onMessage(List<ConsumerRecord<K, V>> data, Consumer<?, ?> consumer) {
+	public void onMessage(List<ConsumerRecord<K, V>> data, @Nullable Consumer<?, ?> consumer) {
 		onMessage(data, null, consumer);
 	}
 

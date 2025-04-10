@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-2023 the original author or authors.
+ * Copyright 2022-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 import org.junit.platform.engine.ConfigurationParameters;
 import org.junit.platform.launcher.TestExecutionListener;
 import org.junit.platform.launcher.TestPlan;
@@ -31,7 +32,6 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PropertiesLoaderUtils;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.EmbeddedKafkaKraftBroker;
-import org.springframework.kafka.test.EmbeddedKafkaZKBroker;
 import org.springframework.util.StringUtils;
 
 /**
@@ -90,8 +90,10 @@ public class GlobalEmbeddedKafkaTestExecutionListener implements TestExecutionLi
 	public static final String BROKER_PROPERTIES_LOCATION_PROPERTY_NAME =
 			"spring.kafka.embedded.broker.properties.location";
 
+	@Nullable
 	private EmbeddedKafkaBroker embeddedKafkaBroker;
 
+	@SuppressWarnings("NullAway.Init")
 	private Log logger;
 
 	@Override
@@ -122,18 +124,11 @@ public class GlobalEmbeddedKafkaTestExecutionListener implements TestExecutionLi
 			int[] ports =
 					configurationParameters.get(PORTS_PROPERTY_NAME, this::ports)
 							.orElse(new int[count]);
-			boolean kraft = configurationParameters.getBoolean(KRAFT_PROPERTY_NAME).orElse(true);
 
-			if (kraft) {
-				this.embeddedKafkaBroker = new EmbeddedKafkaKraftBroker(count, partitions, topics)
-						.brokerProperties(brokerProperties)
-						.kafkaPorts(ports);
-			}
-			else {
-				this.embeddedKafkaBroker = new EmbeddedKafkaZKBroker(count, false, partitions, topics)
-						.brokerProperties(brokerProperties)
-						.kafkaPorts(ports);
-			}
+			this.embeddedKafkaBroker = new EmbeddedKafkaKraftBroker(count, partitions, topics)
+					.brokerProperties(brokerProperties)
+					.kafkaPorts(ports);
+
 			if (brokerListProperty != null) {
 				this.embeddedKafkaBroker.brokerListProperty(brokerListProperty);
 			}
@@ -165,8 +160,8 @@ public class GlobalEmbeddedKafkaTestExecutionListener implements TestExecutionLi
 	public void testPlanExecutionFinished(TestPlan testPlan) {
 		if (this.embeddedKafkaBroker != null) {
 			this.embeddedKafkaBroker.destroy();
-			this.logger.info("Stopped global Embedded Kafka.");
 		}
+		this.logger.info("Stopped global Embedded Kafka.");
 	}
 
 }

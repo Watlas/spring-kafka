@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 the original author or authors.
+ * Copyright 2022-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,7 @@ package org.springframework.kafka.listener;
 import java.time.Duration;
 
 import org.apache.kafka.common.TopicPartition;
-
-import org.springframework.lang.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A {@link BackOffHandler} that pauses the container for the backoff.
@@ -44,7 +43,7 @@ public class ContainerPausingBackOffHandler implements BackOffHandler {
 	}
 
 	@Override
-	public void onNextBackOff(@Nullable MessageListenerContainer container, Exception exception, long nextBackOff) {
+	public void onNextBackOff(@Nullable MessageListenerContainer container, @Nullable Exception exception, long nextBackOff) {
 		if (container == null) {
 			this.defaultBackOffHandler.onNextBackOff(container, exception, nextBackOff); // NOSONAR
 		}

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2024 the original author or authors.
+ * Copyright 2018-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeaders;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.NestedRuntimeException;
 import org.springframework.core.log.LogAccessor;
@@ -44,7 +45,6 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer.SingleRe
 import org.springframework.kafka.listener.SeekUtils;
 import org.springframework.kafka.listener.TimestampedException;
 import org.springframework.kafka.support.KafkaHeaders;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -71,6 +71,7 @@ public class DeadLetterPublishingRecovererFactory {
 
 	private Consumer<DeadLetterPublishingRecoverer> recovererCustomizer = recoverer -> { };
 
+	@Nullable
 	private BiFunction<ConsumerRecord<?, ?>, Exception, Headers> headersFunction;
 
 	private ListenerExceptionLoggingStrategy loggingStrategy = ListenerExceptionLoggingStrategy.AFTER_RETRIES_EXHAUSTED;
@@ -268,7 +269,7 @@ public class DeadLetterPublishingRecovererFactory {
 	}
 
 	private DeadLetterPublishingRecoverer create(
-			Function<ProducerRecord<?, ?>, KafkaOperations<?, ?>> templateResolver,
+			Function<ProducerRecord<?, ?>, @Nullable KafkaOperations<?, ?>> templateResolver,
 			BiFunction<ConsumerRecord<?, ?>, Exception, TopicPartition> destinationResolver) {
 
 		return new DeadLetterPublishingRecoverer(templateResolver, destinationResolver);

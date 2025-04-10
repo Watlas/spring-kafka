@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,6 +39,8 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import reactor.core.publisher.Mono;
 
 import org.springframework.context.expression.MapAccessor;
@@ -61,8 +63,6 @@ import org.springframework.kafka.support.KafkaNull;
 import org.springframework.kafka.support.KafkaUtils;
 import org.springframework.kafka.support.converter.MessagingMessageConverter;
 import org.springframework.kafka.support.converter.RecordMessageConverter;
-import org.springframework.lang.NonNull;
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.MessagingException;
@@ -77,11 +77,12 @@ import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
+import org.springframework.util.TypeUtils;
 
 /**
- * An abstract {@link org.springframework.kafka.listener.MessageListener} adapter
+ * An abstract {@link MessageListener} adapter
  * providing the necessary infrastructure to extract the payload of a
- * {@link org.springframework.messaging.Message}.
+ * {@link Message}.
  *
  * @param <K> the key type.
  * @param <V> the value type.
@@ -114,11 +115,11 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 
 	protected final LogAccessor logger = new LogAccessor(LogFactory.getLog(getClass())); //NOSONAR
 
-	private final Type inferredType;
+	private final @Nullable Type inferredType;
 
 	private final StandardEvaluationContext evaluationContext = new StandardEvaluationContext();
 
-	private final KafkaListenerErrorHandler errorHandler;
+	private final @Nullable KafkaListenerErrorHandler errorHandler;
 
 	@Nullable
 	private HandlerAdapter handlerMethod;
@@ -137,10 +138,10 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 
 	private Type fallbackType = Object.class;
 
-	private Expression replyTopicExpression;
+	private @Nullable Expression replyTopicExpression;
 
 	@SuppressWarnings("rawtypes")
-	private KafkaTemplate replyTemplate;
+	private @Nullable KafkaTemplate replyTemplate;
 
 	private boolean hasAckParameter;
 
@@ -150,7 +151,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 
 	private boolean messageReturnType;
 
-	private ReplyHeadersConfigurer replyHeadersConfigurer;
+	private @Nullable ReplyHeadersConfigurer replyHeadersConfigurer;
 
 	private boolean splitIterables = true;
 
@@ -158,7 +159,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 
 	private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
 
-	private BiConsumer<ConsumerRecord<K, V>, RuntimeException> asyncRetryCallback;
+	private @Nullable BiConsumer<ConsumerRecord<K, V>, RuntimeException> asyncRetryCallback;
 
 	/**
 	 * Create an instance with the provided bean and method.
@@ -175,6 +176,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	 * @param method the method.
 	 * @param errorHandler the kafka listener error handler.
 	 */
+	@SuppressWarnings("this-escape")
 	protected MessagingMessageListenerAdapter(Object bean, Method method, @Nullable KafkaListenerErrorHandler errorHandler) {
 		this.bean = bean;
 		this.inferredType = determineInferredType(method); // NOSONAR = intentionally not final
@@ -204,9 +206,9 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 
 	/**
 	 * Return the {@link MessagingMessageConverter} for this listener,
-	 * being able to convert {@link org.springframework.messaging.Message}.
+	 * being able to convert {@link Message}.
 	 * @return the {@link MessagingMessageConverter} for this listener,
-	 * being able to convert {@link org.springframework.messaging.Message}.
+	 * being able to convert {@link Message}.
 	 */
 	protected final RecordMessageConverter getMessageConverter() {
 		return this.messageConverter;
@@ -320,6 +322,20 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 		this.evaluationContext.addPropertyAccessor(new MapAccessor());
 	}
 
+	/**
+	 * Set the retry callback for failures of both {@link CompletableFuture} and {@link Mono}.
+	 * {@link MessagingMessageListenerAdapter#asyncFailure(Object, Acknowledgment, Consumer, Throwable, Message)}
+	 * will invoke {@link MessagingMessageListenerAdapter#asyncRetryCallback} when
+	 * {@link CompletableFuture} or {@link Mono} fails to complete.
+	 * @param asyncRetryCallback the callback for async retry.
+	 * @since 3.3
+	 */
+	public void setCallbackForAsyncFailure(
+			@Nullable BiConsumer<ConsumerRecord<K, V>, RuntimeException> asyncRetryCallback) {
+
+		this.asyncRetryCallback = asyncRetryCallback;
+	}
+
 	protected boolean isMessageList() {
 		return this.isMessageList;
 	}
@@ -330,7 +346,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	 * @since 2.2
 	 * @see #setReplyHeadersConfigurer(ReplyHeadersConfigurer)
 	 */
-	protected ReplyHeadersConfigurer getReplyHeadersConfigurer() {
+	protected @Nullable ReplyHeadersConfigurer getReplyHeadersConfigurer() {
 		return this.replyHeadersConfigurer;
 	}
 
@@ -377,7 +393,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	}
 
 	@Override
-	public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+	public void onPartitionsRevoked(@Nullable Collection<TopicPartition> partitions) {
 		if (this.bean instanceof ConsumerSeekAware csa) {
 			csa.onPartitionsRevoked(partitions);
 		}
@@ -391,11 +407,12 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	}
 
 	protected Message<?> toMessagingMessage(ConsumerRecord<K, V> cRecord, @Nullable Acknowledgment acknowledgment,
-			Consumer<?, ?> consumer) {
+			@Nullable Consumer<?, ?> consumer) {
+
 		return getMessageConverter().toMessage(cRecord, acknowledgment, consumer, getType());
 	}
 
-	protected void invoke(Object records, @Nullable Acknowledgment acknowledgment, Consumer<?, ?> consumer,
+	protected void invoke(Object records, @Nullable Acknowledgment acknowledgment, @Nullable Consumer<?, ?> consumer,
 			final Message<?> message) {
 
 		Throwable listenerError = null;
@@ -409,7 +426,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 		}
 		catch (ListenerExecutionFailedException e) {
 			listenerError = e;
-			currentObservation.error(e);
+			currentObservation.error(e.getCause() != null ? e.getCause() : e);
 			handleException(records, acknowledgment, consumer, message, e);
 		}
 		catch (Error e) {
@@ -439,7 +456,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	 */
 	@Nullable
 	protected final Object invokeHandler(Object data, @Nullable Acknowledgment acknowledgment, Message<?> message,
-			Consumer<?, ?> consumer) {
+			@Nullable Consumer<?, ?> consumer) {
 
 		Acknowledgment ack = acknowledgment;
 		if (ack == null && this.noOpAck) {
@@ -495,7 +512,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	 * {@code o.s.messaging.Message<?>}; may be null
 	 */
 	protected void handleResult(Object resultArg, Object request, @Nullable Acknowledgment acknowledgment,
-			Consumer<?, ?> consumer, @Nullable Message<?> source) {
+			@Nullable Consumer<?, ?> consumer, @Nullable Message<?> source) {
 		final Observation observation = getCurrentObservation();
 		this.logger.debug(() -> "Listener method returned result [" + resultArg
 				+ "] - generating response message for it");
@@ -534,7 +551,9 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 			try {
 				if (t == null) {
 					asyncSuccess(r, replyTopic, source, messageReturnType);
-					acknowledge(acknowledgment);
+					if (isAsyncReplies()) {
+						acknowledge(acknowledgment);
+					}
 				}
 				else {
 					Throwable cause = t instanceof CompletionException ? t.getCause() : t;
@@ -549,7 +568,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	}
 
 	@Nullable
-	private String evaluateReplyTopic(Object request, Object source, Object result) {
+	private String evaluateReplyTopic(Object request, @Nullable Object source, Object result) {
 		String replyTo = null;
 		if (result instanceof InvocationResult invResult) {
 			replyTo = evaluateTopic(request, source, result, invResult.sendTo());
@@ -561,7 +580,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	}
 
 	@Nullable
-	private String evaluateTopic(Object request, Object source, Object result, @Nullable Expression sendTo) {
+	private String evaluateTopic(Object request, @Nullable Object source, Object result, @Nullable Expression sendTo) {
 		if (sendTo instanceof LiteralExpression) {
 			return sendTo.getValue(String.class);
 		}
@@ -599,21 +618,21 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 		}
 		else if (result instanceof Message<?> mResult) {
 			Message<?> reply = checkHeaders(mResult, topic, source);
-			this.replyTemplate.send(reply);
+			Objects.requireNonNull(this.replyTemplate).send(reply);
 		}
 		else if (result instanceof Iterable<?> iterable && (iterableOfMessages(iterable) || this.splitIterables)) {
 			iterable.forEach(v -> {
 				if (v instanceof Message<?> mv) {
 					Message<?> aReply = checkHeaders(mv, topic, source);
-					this.replyTemplate.send(aReply);
+					Objects.requireNonNull(this.replyTemplate).send(aReply);
 				}
 				else {
-					this.replyTemplate.send(topic, v);
+					Objects.requireNonNull(this.replyTemplate).send(Objects.requireNonNull(topic), v);
 				}
 			});
 		}
 		else {
-			sendSingleResult(result, topic, source);
+			sendSingleResult(result, Objects.requireNonNull(topic), source);
 		}
 	}
 
@@ -627,9 +646,9 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 		boolean needsTopic = topic != null && headers.get(KafkaHeaders.TOPIC) == null;
 		boolean sourceIsMessage = source instanceof Message;
 		boolean needsCorrelation = headers.get(this.correlationHeaderName) == null && sourceIsMessage
-				&& getCorrelation((Message<?>) source) != null;
+				&& getCorrelation(Objects.requireNonNull((Message<?>) source)) != null;
 		boolean needsPartition = headers.get(KafkaHeaders.PARTITION) == null && sourceIsMessage
-				&& getReplyPartition((Message<?>) source) != null;
+				&& getReplyPartition(Objects.requireNonNull((Message<?>) source)) != null;
 		if (needsTopic || needsCorrelation || needsPartition) {
 			MessageBuilder<?> builder = MessageBuilder.fromMessage(reply);
 			if (needsTopic) {
@@ -652,12 +671,12 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 			sendReplyForMessageSource(result, topic, message, getCorrelation(message));
 		}
 		else {
-			this.replyTemplate.send(topic, result);
+			Objects.requireNonNull(this.replyTemplate).send(topic, result);
 		}
 	}
 
 	@SuppressWarnings("unchecked")
-	private void sendReplyForMessageSource(Object result, String topic, Message<?> source, @Nullable byte[] correlationId) {
+	private void sendReplyForMessageSource(Object result, String topic, Message<?> source, byte[] correlationId) {
 		MessageBuilder<Object> builder = MessageBuilder.withPayload(result)
 				.setHeader(KafkaHeaders.TOPIC, topic);
 		if (this.replyHeadersConfigurer != null) {
@@ -683,10 +702,10 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 		}
 		setPartition(builder, source);
 		setKey(builder, source);
-		this.replyTemplate.send(builder.build());
+		Objects.requireNonNull(this.replyTemplate).send(builder.build());
 	}
 
-	protected void asyncSuccess(@Nullable Object result, String replyTopic, Message<?> source,
+	protected void asyncSuccess(@Nullable Object result, @Nullable String replyTopic, @Nullable Message<?> source,
 			boolean returnTypeMessage) {
 
 		if (result == null) {
@@ -705,14 +724,15 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 		}
 	}
 
-	protected void asyncFailure(Object request, @Nullable Acknowledgment acknowledgment, Consumer<?, ?> consumer,
-			Throwable t, Message<?> source) {
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
+	protected void asyncFailure(Object request, @Nullable Acknowledgment acknowledgment, @Nullable Consumer<?, ?> consumer,
+			@Nullable Throwable t, @Nullable Message<?> source) {
 
 		try {
 			Throwable cause = t instanceof CompletionException ? t.getCause() : t;
 			handleException(request, acknowledgment, consumer, source,
 							new ListenerExecutionFailedException(createMessagingErrorMessage(
-									"Async Fail", source.getPayload()), cause));
+									"Async Fail", Objects.requireNonNull(source).getPayload()), cause));
 		}
 		catch (Throwable ex) {
 			this.logger.error(t, () -> "Future, Mono, or suspend function was completed with an exception for " + source);
@@ -730,16 +750,16 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 		return request instanceof ConsumerRecord && exception instanceof RuntimeException;
 	}
 
-	protected void handleException(Object records, @Nullable Acknowledgment acknowledgment, Consumer<?, ?> consumer,
-			Message<?> message, ListenerExecutionFailedException e) {
+	protected void handleException(Object records, @Nullable Acknowledgment acknowledgment, @Nullable Consumer<?, ?> consumer,
+			@Nullable Message<?> message, ListenerExecutionFailedException e) {
 
 		if (this.errorHandler != null) {
 			try {
 				if (NULL_MESSAGE.equals(message)) {
 					message = new GenericMessage<>(records);
 				}
-				Object errorResult = this.errorHandler.handleError(message, e, consumer, acknowledgment);
-				if (errorResult != null && !(errorResult instanceof InvocationResult)) {
+				Object errorResult = this.errorHandler.handleError(Objects.requireNonNull(message), e, consumer, acknowledgment);
+				if (errorResult != null && !(errorResult instanceof InvocationResult) && this.handlerMethod != null) {
 					Object result = this.handlerMethod.getInvocationResultFor(errorResult, message.getPayload());
 					handleResult(Objects.requireNonNullElse(result, errorResult),
 							records, acknowledgment, consumer, message);
@@ -748,7 +768,7 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 			catch (Exception ex) {
 				throw new ListenerExecutionFailedException(createMessagingErrorMessage(// NOSONAR stack trace loss
 						"Listener error handler threw an exception for the incoming message",
-						message.getPayload()), ex);
+						Objects.requireNonNull(message).getPayload()), ex);
 			}
 		}
 		else {
@@ -756,42 +776,42 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 		}
 	}
 
-	private void setCorrelation(MessageBuilder<?> builder, Message<?> source) {
+	private void setCorrelation(MessageBuilder<?> builder, @Nullable Message<?> source) {
 		byte[] correlationBytes = getCorrelation(source);
 		if (correlationBytes != null) {
 			builder.setHeader(this.correlationHeaderName, correlationBytes);
 		}
 	}
 
-	@Nullable
-	private byte[] getCorrelation(Message<?> source) {
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
+	private byte[] getCorrelation(@Nullable Message<?> source) {
 		return source.getHeaders().get(this.correlationHeaderName, byte[].class);
 	}
 
-	private void setPartition(MessageBuilder<?> builder, Message<?> source) {
+	private void setPartition(MessageBuilder<?> builder, @Nullable Message<?> source) {
 		byte[] partitionBytes = getReplyPartition(source);
 		if (partitionBytes != null) {
 			builder.setHeader(KafkaHeaders.PARTITION, ByteBuffer.wrap(partitionBytes).getInt());
 		}
 	}
 
-	private void setKey(MessageBuilder<?> builder, Message<?> source) {
-		Object key = source.getHeaders().get(KafkaHeaders.RECEIVED_KEY);
+	private void setKey(MessageBuilder<?> builder, @Nullable Message<?> source) {
+		Object key = Objects.requireNonNull(source).getHeaders().get(KafkaHeaders.RECEIVED_KEY);
 		// Set the reply record key only for non-batch requests
 		if (key != null && !(key instanceof List)) {
 			builder.setHeader(KafkaHeaders.KEY, key);
 		}
 	}
 
-	@Nullable
-	private byte[] getReplyPartition(Message<?> source) {
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
+	private byte[] getReplyPartition(@Nullable Message<?> source) {
 		return source.getHeaders().get(KafkaHeaders.REPLY_PARTITION, byte[].class);
 	}
 
 	protected final String createMessagingErrorMessage(String description, Object payload) {
 		return description + "\n"
 				+ "Endpoint handler details:\n"
-				+ "Method [" + this.handlerMethod.getMethodAsString(payload) + "]\n"
+				+ "Method [" + Objects.requireNonNull(this.handlerMethod).getMethodAsString(payload) + "]\n"
 				+ "Bean [" + this.handlerMethod.getBean() + "]";
 	}
 
@@ -875,68 +895,45 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	private Type extractGenericParameterTypFromMethodParameter(MethodParameter methodParameter) {
 		Type genericParameterType = methodParameter.getGenericParameterType();
 		if (genericParameterType instanceof ParameterizedType parameterizedType) {
-			if (parameterizedType.getRawType().equals(Message.class)) {
+			Type rawType = parameterizedType.getRawType();
+			if (rawType.equals(Message.class)) {
 				genericParameterType = parameterizedType.getActualTypeArguments()[0];
 			}
-			else if (parameterizedType.getRawType().equals(List.class)
-					&& parameterizedType.getActualTypeArguments().length == 1) {
-
-				Type paramType = getTypeFromWildCardWithUpperBound(parameterizedType.getActualTypeArguments()[0]);
-				this.isConsumerRecordList = parameterIsType(paramType, ConsumerRecord.class);
-				boolean messageWithGeneric = rawByParameterIsType(paramType, Message.class);
-				this.isMessageList = Message.class.equals(paramType) || messageWithGeneric;
-				if (messageWithGeneric) {
+			else if (rawType.equals(List.class) && parameterizedType.getActualTypeArguments().length == 1) {
+				Type paramType = parameterizedType.getActualTypeArguments()[0];
+				boolean messageHasGeneric = paramType instanceof ParameterizedType pType
+						&& pType.getRawType().equals(Message.class);
+				this.isMessageList = TypeUtils.isAssignable(paramType, Message.class) || messageHasGeneric;
+				this.isConsumerRecordList = TypeUtils.isAssignable(paramType, ConsumerRecord.class);
+				if (messageHasGeneric) {
 					genericParameterType = ((ParameterizedType) paramType).getActualTypeArguments()[0];
 				}
 			}
 			else {
-				this.isConsumerRecords = parameterizedType.getRawType().equals(ConsumerRecords.class);
+				this.isConsumerRecords = rawType.equals(ConsumerRecords.class);
 			}
 		}
 		return genericParameterType;
 	}
 
-	private boolean annotationHeaderIsGroupId(MethodParameter methodParameter) {
+	private static boolean annotationHeaderIsGroupId(MethodParameter methodParameter) {
 		Header header = methodParameter.getParameterAnnotation(Header.class);
 		return header != null && KafkaHeaders.GROUP_ID.equals(header.value());
 	}
 
-	private Type getTypeFromWildCardWithUpperBound(Type paramType) {
-		if (paramType instanceof WildcardType wcType
-				&& wcType.getUpperBounds() != null
-				&& wcType.getUpperBounds().length > 0) {
-			paramType = wcType.getUpperBounds()[0];
-		}
-		return paramType;
-	}
-
-	private boolean isMessageWithNoTypeInfo(Type parameterType) {
+	private static boolean isMessageWithNoTypeInfo(Type parameterType) {
 		if (parameterType instanceof ParameterizedType pType && pType.getRawType().equals(Message.class)) {
 			return pType.getActualTypeArguments()[0] instanceof WildcardType;
 		}
 		return Message.class.equals(parameterType); // could be Message without a generic type
 	}
 
-	private boolean parameterIsType(Type parameterType, Type type) {
+	private static boolean parameterIsType(Type parameterType, Type type) {
 		return parameterType.equals(type) || rawByParameterIsType(parameterType, type);
 	}
 
-	private boolean rawByParameterIsType(Type parameterType, Type type) {
+	private static boolean rawByParameterIsType(Type parameterType, Type type) {
 		return parameterType instanceof ParameterizedType pType && pType.getRawType().equals(type);
-	}
-
-	/**
-	 * Set the retry callback for failures of both {@link CompletableFuture} and {@link Mono}.
-	 * {@link MessagingMessageListenerAdapter#asyncFailure(Object, Acknowledgment, Consumer, Throwable, Message)}
-	 * will invoke {@link MessagingMessageListenerAdapter#asyncRetryCallback} when
-	 * {@link CompletableFuture} or {@link Mono} fails to complete.
-	 * @param asyncRetryCallback the callback for async retry.
-	 * @since 3.3
-	 */
-	public void setCallbackForAsyncFailure(
-			@Nullable BiConsumer<ConsumerRecord<K, V>, RuntimeException> asyncRetryCallback) {
-
-		this.asyncRetryCallback = asyncRetryCallback;
 	}
 
 	/**
@@ -946,7 +943,8 @@ public abstract class MessagingMessageListenerAdapter<K, V> implements ConsumerS
 	 * @param result the result.
 	 * @since 2.0
 	 */
-	public record ReplyExpressionRoot(Object request, Object source, Object result) {
+	public record ReplyExpressionRoot(Object request, @Nullable Object source, Object result) {
+
 	}
 
 	static class NoOpAck implements Acknowledgment {

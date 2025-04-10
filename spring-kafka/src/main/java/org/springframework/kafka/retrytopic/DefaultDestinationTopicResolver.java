@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2024 the original author or authors.
+ * Copyright 2018-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.BeansException;
 import org.springframework.context.ApplicationContext;
@@ -36,7 +40,6 @@ import org.springframework.kafka.listener.ExceptionClassifier;
 import org.springframework.kafka.listener.ListenerExecutionFailedException;
 import org.springframework.kafka.listener.TimestampedException;
 import org.springframework.kafka.retrytopic.DestinationTopic.Type;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -49,6 +52,7 @@ import org.springframework.util.Assert;
  * @author Gary Russell
  * @author Yvette Quinby
  * @author Adrian Chlebosz
+ * @author Omer Celik
  * @since 2.7
  *
  */
@@ -62,8 +66,11 @@ public class DefaultDestinationTopicResolver extends ExceptionClassifier
 
 	private final Map<String, Map<String, DestinationTopicHolder>> sourceDestinationsHolderMap;
 
+	private final Lock sourceDestinationsHolderLock = new ReentrantLock();
+
 	private final Clock clock;
 
+	@SuppressWarnings("NullAway.Init")
 	private ApplicationContext applicationContext;
 
 	private boolean contextRefreshed;
@@ -105,7 +112,8 @@ public class DefaultDestinationTopicResolver extends ExceptionClassifier
 		return getClassifier().classify(e);
 	}
 
-	private Throwable maybeUnwrapException(Throwable e) {
+	private Throwable maybeUnwrapException(@Nullable Throwable e) {
+		Assert.state(e != null, "Exception cannot be null");
 		return FRAMEWORK_EXCEPTIONS
 				.stream()
 				.filter(frameworkException -> frameworkException.isAssignableFrom(e.getClass()))
@@ -154,21 +162,21 @@ public class DefaultDestinationTopicResolver extends ExceptionClassifier
 
 	@Nullable
 	@Override
-	public DestinationTopic getDltFor(String mainListenerId, String topicName, Exception e) {
+	public DestinationTopic getDltFor(String mainListenerId, String topicName, @Nullable Exception e) {
 		DestinationTopic destination = getDltOrNoOpsDestination(mainListenerId, topicName, e);
 		return destination.isNoOpsTopic()
 				? null
 				: destination;
 	}
 
-	private DestinationTopic getDltOrNoOpsDestination(String mainListenerId, String topic, Exception e) {
+	private DestinationTopic getDltOrNoOpsDestination(String mainListenerId, @Nullable String topic, @Nullable Exception e) {
 		DestinationTopic destination = getNextDestinationTopicFor(mainListenerId, topic);
 		return isMatchingDltTopic(destination, e) || destination.isNoOpsTopic() ?
 			destination :
 			getDltOrNoOpsDestination(mainListenerId, destination.getDestinationName(), e);
 	}
 
-	private static boolean isMatchingDltTopic(DestinationTopic destination, Exception e) {
+	private static boolean isMatchingDltTopic(DestinationTopic destination, @Nullable Exception e) {
 		if (!destination.isDltTopic()) {
 			return false;
 		}
@@ -179,7 +187,7 @@ public class DefaultDestinationTopicResolver extends ExceptionClassifier
 		return isDltIntendedForCurrentExc || isGenericPurposeDlt;
 	}
 
-	private static boolean isDirectExcOrCause(Exception e, Class<? extends Throwable> excType) {
+	private static boolean isDirectExcOrCause(@Nullable Exception e, Class<? extends Throwable> excType) {
 		if (e == null) {
 			return false;
 		}
@@ -199,23 +207,27 @@ public class DefaultDestinationTopicResolver extends ExceptionClassifier
 	}
 
 	@Override
-	public DestinationTopic getNextDestinationTopicFor(String mainListenerId, String topic) {
+	public DestinationTopic getNextDestinationTopicFor(String mainListenerId, @Nullable String topic) {
 		return getDestinationHolderFor(mainListenerId, topic).getNextDestination();
 	}
 
-	private DestinationTopicHolder getDestinationHolderFor(String mainListenerId, String topic) {
+	private DestinationTopicHolder getDestinationHolderFor(String mainListenerId, @Nullable String topic) {
 		return this.contextRefreshed
 				? doGetDestinationFor(mainListenerId, topic)
 				: getDestinationTopicSynchronized(mainListenerId, topic);
 	}
 
-	private DestinationTopicHolder getDestinationTopicSynchronized(String mainListenerId, String topic) {
-		synchronized (this.sourceDestinationsHolderMap) {
+	private DestinationTopicHolder getDestinationTopicSynchronized(String mainListenerId, @Nullable String topic) {
+		try {
+			this.sourceDestinationsHolderLock.lock();
 			return doGetDestinationFor(mainListenerId, topic);
+		}
+		finally {
+			this.sourceDestinationsHolderLock.unlock();
 		}
 	}
 
-	private DestinationTopicHolder doGetDestinationFor(String mainListenerId, String topic) {
+	private DestinationTopicHolder doGetDestinationFor(String mainListenerId, @Nullable String topic) {
 		Map<String, DestinationTopicHolder> map = this.sourceDestinationsHolderMap.get(mainListenerId);
 		Assert.notNull(map, () -> "No destination resolution information for listener " + mainListenerId);
 		return Objects.requireNonNull(map.get(topic),
@@ -229,10 +241,14 @@ public class DefaultDestinationTopicResolver extends ExceptionClassifier
 					+ DefaultDestinationTopicResolver.class.getSimpleName() + " is already refreshed.");
 		}
 		validateDestinations(destinationsToAdd);
-		synchronized (this.sourceDestinationsHolderMap) {
+		try {
+			this.sourceDestinationsHolderLock.lock();
 			Map<String, DestinationTopicHolder> map = this.sourceDestinationsHolderMap.computeIfAbsent(mainListenerId,
 					id -> new HashMap<>());
 			map.putAll(correlatePairSourceAndDestinationValues(destinationsToAdd));
+		}
+		finally {
+			this.sourceDestinationsHolderLock.unlock();
 		}
 	}
 

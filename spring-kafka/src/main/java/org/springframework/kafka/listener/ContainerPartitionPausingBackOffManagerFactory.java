@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 the original author or authors.
+ * Copyright 2022-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 
 package org.springframework.kafka.listener;
 
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.context.ApplicationContext;
 import org.springframework.util.Assert;
 
@@ -28,14 +30,15 @@ import org.springframework.util.Assert;
  */
 public class ContainerPartitionPausingBackOffManagerFactory extends AbstractKafkaBackOffManagerFactory {
 
-	private BackOffHandler backOffHandler;
+	private @Nullable BackOffHandler backOffHandler;
 
 	/**
 	 * Construct an instance with the provided properties.
 	 * @param listenerContainerRegistry the registry.
 	 * @param applicationContext the application context.
 	 */
-	public ContainerPartitionPausingBackOffManagerFactory(ListenerContainerRegistry listenerContainerRegistry,
+	@SuppressWarnings("this-escape")
+	public ContainerPartitionPausingBackOffManagerFactory(@Nullable ListenerContainerRegistry listenerContainerRegistry,
 			ApplicationContext applicationContext) {
 
 		super(listenerContainerRegistry);

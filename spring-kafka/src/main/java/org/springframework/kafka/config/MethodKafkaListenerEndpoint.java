@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2023 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 
 import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.config.BeanExpressionContext;
@@ -39,7 +40,6 @@ import org.springframework.kafka.support.JavaUtils;
 import org.springframework.kafka.support.converter.BatchMessageConverter;
 import org.springframework.kafka.support.converter.MessageConverter;
 import org.springframework.kafka.support.converter.RecordMessageConverter;
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.converter.SmartMessageConverter;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.messaging.handler.annotation.support.MessageHandlerMethodFactory;
@@ -62,15 +62,17 @@ public class MethodKafkaListenerEndpoint<K, V> extends AbstractKafkaListenerEndp
 
 	private final LogAccessor logger = new LogAccessor(LogFactory.getLog(getClass()));
 
+	@SuppressWarnings("NullAway.Init")
 	private Object bean;
 
+	@SuppressWarnings("NullAway.Init")
 	private Method method;
 
-	private MessageHandlerMethodFactory messageHandlerMethodFactory;
+	private @Nullable MessageHandlerMethodFactory messageHandlerMethodFactory;
 
-	private KafkaListenerErrorHandler errorHandler;
+	private @Nullable KafkaListenerErrorHandler errorHandler;
 
-	private SmartMessageConverter messagingConverter;
+	private @Nullable SmartMessageConverter messagingConverter;
 
 	/**
 	 * Set the object instance that should manage this endpoint.
@@ -128,8 +130,7 @@ public class MethodKafkaListenerEndpoint<K, V> extends AbstractKafkaListenerEndp
 		this.messagingConverter = messagingConverter;
 	}
 
-	@Nullable
-	private String getReplyTopic() {
+	private @Nullable String getReplyTopic() {
 		Method replyingMethod = getMethod();
 		if (replyingMethod != null) {
 			SendTo ann = AnnotatedElementUtils.findMergedAnnotation(replyingMethod, SendTo.class);
@@ -163,11 +164,12 @@ public class MethodKafkaListenerEndpoint<K, V> extends AbstractKafkaListenerEndp
 	 * Return the {@link MessageHandlerMethodFactory}.
 	 * @return the messageHandlerMethodFactory
 	 */
-	protected MessageHandlerMethodFactory getMessageHandlerMethodFactory() {
+	protected @Nullable MessageHandlerMethodFactory getMessageHandlerMethodFactory() {
 		return this.messageHandlerMethodFactory;
 	}
 
 	@Override
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
 	protected MessagingMessageListenerAdapter<K, V> createMessageListener(MessageListenerContainer container,
 			@Nullable MessageConverter messageConverter) {
 
@@ -192,6 +194,8 @@ public class MethodKafkaListenerEndpoint<K, V> extends AbstractKafkaListenerEndp
 	 * @return the handler adapter.
 	 */
 	protected HandlerAdapter configureListenerAdapter(MessagingMessageListenerAdapter<K, V> messageListener) {
+		Assert.state(this.messageHandlerMethodFactory != null,
+				"MessageHandlerMethodFactory must not be null");
 		InvocableHandlerMethod invocableHandlerMethod =
 				this.messageHandlerMethodFactory.createInvocableHandlerMethod(getBean(), getMethod());
 		return new HandlerAdapter(invocableHandlerMethod);
@@ -236,8 +240,7 @@ public class MethodKafkaListenerEndpoint<K, V> extends AbstractKafkaListenerEndp
 		return listener;
 	}
 
-	@SuppressWarnings("null")
-	private String resolve(String value) {
+	private @Nullable String resolve(String value) {
 		BeanExpressionContext beanExpressionContext = getBeanExpressionContext();
 		BeanExpressionResolver resolver = getResolver();
 		if (resolver != null && beanExpressionContext != null) {

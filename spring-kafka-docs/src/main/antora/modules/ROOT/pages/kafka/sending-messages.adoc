@@ -60,25 +60,22 @@ interface OperationsCallback<K, V, T> {
 }
 ----
 
-See the https://docs.spring.io/spring-kafka/api/org/springframework/kafka/core/KafkaTemplate.html[Javadoc] for more detail.
-
-IMPORTANT: In version 3.0, the methods that previously returned `ListenableFuture` have been changed to return `CompletableFuture`.
-To facilitate the migration, the 2.9 version added a method `usingCompletableFuture()` which provided the same methods with `CompletableFuture` return types; this method is no longer available.
+See the javadoc:org.springframework.kafka.core.KafkaTemplate[Javadoc] for more detail.
 
 The `sendDefault` API requires that a default topic has been provided to the template.
 
 The API takes in a `timestamp` as a parameter and stores this timestamp in the record.
 How the user-provided timestamp is stored depends on the timestamp type configured on the Kafka topic.
 If the topic is configured to use `CREATE_TIME`, the user-specified timestamp is recorded (or generated if not specified).
-If the topic is configured to use `LOG_APPEND_TIME`, the user-specified timestamp is ignored and the broker adds in the local broker time.
+If the topic is configured to use `LOG_APPEND_TIME`, the user-specified timestamp ignored and the broker adds in the local broker time.
 
-The `metrics` and `partitionsFor` methods delegate to the same methods on the underlying https://kafka.apache.org/20/javadoc/org/apache/kafka/clients/producer/Producer.html[`Producer`].
-The `execute` method provides direct access to the underlying https://kafka.apache.org/20/javadoc/org/apache/kafka/clients/producer/Producer.html[`Producer`].
+The `metrics` and `partitionsFor` methods delegate to the same methods on the underlying javadoc:org.apache.kafka.clients.producer.Producer[].
+The `execute` method provides direct access to the underlying javadoc:org.apache.kafka.clients.producer.Producer[].
 
 To use the template, you can configure a producer factory and provide it in the template's constructor.
 The following example shows how to do so:
 
-[source, java]
+[source, java, subs="attributes"]
 ----
 @Bean
 public ProducerFactory<Integer, String> producerFactory() {
@@ -91,7 +88,7 @@ public Map<String, Object> producerConfigs() {
     props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, IntegerSerializer.class);
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-    // See https://kafka.apache.org/documentation/#producerconfigs for more properties
+    // See {kafka-url}/documentation/#producerconfigs for more properties
     return props;
 }
 
@@ -196,8 +193,10 @@ public void sendToKafka(final MyOutputData data) {
     });
 }
 ----
+====
 
 .Blocking (Sync)
+====
 [source, java]
 ----
 public void sendToKafka(final MyOutputData data) {
@@ -341,8 +340,6 @@ RequestReplyFuture<K, V, R> sendAndReceive(ProducerRecord<K, V> record,
 The result is a `CompletableFuture` that is asynchronously populated with the result (or an exception, for a timeout).
 The result also has a `sendFuture` property, which is the result of calling `KafkaTemplate.send()`.
 You can use this future to determine the result of the send operation.
-
-IMPORTANT: In version 3.0, the futures returned by these methods (and their `sendFuture` properties) have been changed to  `CompletableFuture`+++s+++ instead of `ListenableFuture`+++s+++.
 
 If the first method is used, or the `replyTimeout` argument is `null`, the template's `defaultReplyTimeout` property is used (5 seconds by default).
 
@@ -572,8 +569,6 @@ RequestReplyMessageFuture<K, V> sendAndReceive(Message<?> message);
 ----
 
 These will use the template's default `replyTimeout`, there are also overloaded versions that can take a timeout in the method call.
-
-IMPORTANT: In version 3.0, the futures returned by these methods (and their `sendFuture` properties) have been changed to  `CompletableFuture`+++s+++ instead of `ListenableFuture`+++s+++.
 
 Use the first method if the consumer's `Deserializer` or the template's `MessageConverter` can convert the payload without any additional information, either via configuration or type metadata in the reply message.
 

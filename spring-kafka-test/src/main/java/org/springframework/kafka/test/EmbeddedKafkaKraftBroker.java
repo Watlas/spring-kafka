@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2024 the original author or authors.
+ * Copyright 2018-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.kafka.test;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.AbstractMap.SimpleEntry;
@@ -27,6 +28,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -39,8 +41,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import kafka.server.KafkaConfig;
-import kafka.testkit.KafkaClusterTestKit;
-import kafka.testkit.TestKitNodes;
 import org.apache.commons.logging.LogFactory;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -51,11 +51,16 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.test.KafkaClusterTestKit;
+import org.apache.kafka.common.test.TestKitNodes;
 import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.common.utils.Utils;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.log.LogAccessor;
 import org.springframework.util.Assert;
+import org.springframework.util.ClassUtils;
+import org.springframework.util.ReflectionUtils;
 
 /**
  * An embedded Kafka Broker(s) using KRaft.
@@ -71,6 +76,7 @@ import org.springframework.util.Assert;
  * @author Adrian Chlebosz
  * @author Soby Chacko
  * @author Sanghyeok An
+ * @author Wouter Coekaerts
  *
  * @since 3.1
  */
@@ -86,6 +92,23 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 
 	public static final int DEFAULT_ADMIN_TIMEOUT = 10;
 
+	private static final boolean IS_KAFKA_39_OR_LATER = ClassUtils.isPresent(
+			"org.apache.kafka.server.config.AbstractKafkaConfig", EmbeddedKafkaKraftBroker.class.getClassLoader());
+
+	private static final @Nullable Method SET_CONFIG_METHOD;
+
+	static {
+		if (IS_KAFKA_39_OR_LATER) {
+			SET_CONFIG_METHOD = ReflectionUtils.findMethod(
+					KafkaClusterTestKit.Builder.class,
+					"setConfigProp",
+					String.class, Object.class);
+		}
+		else {
+			SET_CONFIG_METHOD = null;
+		}
+	}
+
 	private final int count;
 
 	private final Set<String> topics;
@@ -96,7 +119,7 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 
 	private final AtomicBoolean initialized = new AtomicBoolean();
 
-	private KafkaClusterTestKit cluster;
+	private @Nullable KafkaClusterTestKit cluster;
 
 	private int[] kafkaPorts;
 
@@ -110,7 +133,7 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 	 * @param partitions partitions per topic.
 	 * @param topics the topics to create.
 	 */
-	public EmbeddedKafkaKraftBroker(int count, int partitions, String... topics) {
+	public EmbeddedKafkaKraftBroker(int count, int partitions, String @Nullable ... topics) {
 		this.count = count;
 		this.kafkaPorts = new int[this.count]; // random ports by default.
 		if (topics != null) {
@@ -175,12 +198,7 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 		return this;
 	}
 
-	/**
-	 * Set the timeout in seconds for admin operations (e.g. topic creation, close).
-	 * @param adminTimeout the timeout.
-	 * @return the {@link EmbeddedKafkaKraftBroker}
-	 * @since 2.8.5
-	 */
+	@Override
 	public EmbeddedKafkaBroker adminTimeout(int adminTimeout) {
 		this.adminTimeout = Duration.ofSeconds(adminTimeout);
 		return this;
@@ -216,7 +234,7 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 							.setNumBrokerNodes(this.count)
 							.setNumControllerNodes(this.count)
 							.build());
-			this.brokerProperties.forEach((k, v) -> clusterBuilder.setConfigProp((String) k, (String) v));
+			this.brokerProperties.forEach((k, v) -> setConfigProperty(clusterBuilder, (String) k, v));
 			this.cluster = clusterBuilder.build();
 		}
 		catch (Exception ex) {
@@ -233,18 +251,26 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 		}
 
 		createKafkaTopics(this.topics);
-		if (this.brokerListProperty == null) {
-			this.brokerListProperty = System.getProperty(BROKER_LIST_PROPERTY);
-		}
-		if (this.brokerListProperty != null) {
-			System.setProperty(this.brokerListProperty, getBrokersAsString());
-		}
+		System.setProperty(this.brokerListProperty, getBrokersAsString());
 		System.setProperty(SPRING_EMBEDDED_KAFKA_BROKERS, getBrokersAsString());
+	}
+
+	private static void setConfigProperty(KafkaClusterTestKit.Builder clusterBuilder, String key, Object value) {
+		if (IS_KAFKA_39_OR_LATER) {
+			// For Kafka 3.9.0+: use reflection
+			if (SET_CONFIG_METHOD != null) {
+				ReflectionUtils.invokeMethod(SET_CONFIG_METHOD, clusterBuilder, key, value);
+			}
+		}
+		else {
+			// For Kafka 3.8.0: direct call
+			clusterBuilder.setConfigProp(key, (String) value);
+		}
 	}
 
 	@Override
 	public void destroy() {
-		AtomicReference<Throwable> shutdownFailure = new AtomicReference<>();
+		AtomicReference<@Nullable Throwable> shutdownFailure = new AtomicReference<>();
 		Utils.closeQuietly(cluster, "embedded Kafka cluster", shutdownFailure);
 		if (shutdownFailure.get() != null) {
 			throw new IllegalStateException("Failed to shut down embedded Kafka cluster", shutdownFailure.get());
@@ -457,10 +483,12 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 
 	@Override
 	public String getBrokersAsString() {
-		return (String) this.cluster.clientProperties().get(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+		Assert.notNull(this.cluster, "cluster cannot be null");
+		String brokersString = (String) this.cluster.clientProperties().get(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG);
+		return Objects.requireNonNull(brokersString);
 	}
 
-	public KafkaClusterTestKit getCluster() {
+	public @Nullable KafkaClusterTestKit getCluster() {
 		return this.cluster;
 	}
 
@@ -531,11 +559,11 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 	public void consumeFromEmbeddedTopics(Consumer<?, ?> consumer, boolean seekToEnd, String... topicsToConsume) {
 		List<String> notEmbedded = Arrays.stream(topicsToConsume)
 				.filter(topic -> !this.topics.contains(topic))
-				.collect(Collectors.toList());
+				.toList();
 		if (!notEmbedded.isEmpty()) {
 			throw new IllegalStateException("topic(s):'" + notEmbedded + "' are not in embedded topic list");
 		}
-		final AtomicReference<Collection<TopicPartition>> assigned = new AtomicReference<>();
+		final AtomicReference<@Nullable Collection<TopicPartition>> assigned = new AtomicReference<>();
 		consumer.subscribe(Arrays.asList(topicsToConsume), new ConsumerRebalanceListener() {
 
 			@Override
@@ -553,16 +581,19 @@ public class EmbeddedKafkaKraftBroker implements EmbeddedKafkaBroker {
 		while (assigned.get() == null && n++ < 600) { // NOSONAR magic #
 			consumer.poll(Duration.ofMillis(100)); // force assignment NOSONAR magic #
 		}
-		if (assigned.get() != null) {
+		Collection<TopicPartition> topicPartitions = assigned.get();
+		if (topicPartitions != null) {
 			LOGGER.debug(() -> "Partitions assigned "
-					+ assigned.get()
+					+ topicPartitions
 					+ "; re-seeking to "
 					+ (seekToEnd ? "end; " : "beginning"));
 			if (seekToEnd) {
-				consumer.seekToEnd(assigned.get());
+				consumer.seekToEnd(topicPartitions);
+				// seekToEnd is asynchronous. query the position to force the seek to happen now.
+				topicPartitions.forEach(consumer::position);
 			}
 			else {
-				consumer.seekToBeginning(assigned.get());
+				consumer.seekToBeginning(topicPartitions);
 			}
 		}
 		else {

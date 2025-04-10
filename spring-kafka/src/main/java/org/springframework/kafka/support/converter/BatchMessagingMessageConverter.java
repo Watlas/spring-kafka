@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,14 +24,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.logging.LogFactory;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Headers;
+import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.Bytes;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.log.LogAccessor;
+import org.springframework.core.log.LogMessage;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.DefaultKafkaHeaderMapper;
 import org.springframework.kafka.support.JacksonPresent;
@@ -39,7 +41,6 @@ import org.springframework.kafka.support.KafkaHeaderMapper;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.kafka.support.KafkaNull;
 import org.springframework.kafka.support.serializer.SerializationUtils;
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 
@@ -54,7 +55,7 @@ import org.springframework.messaging.support.MessageBuilder;
  * <p>
  * If a {@link RecordMessageConverter} is provided, and the batch type is a {@link ParameterizedType}
  * with a single generic type parameter, each record will be passed to the converter, thus supporting
- * a method signature {@code List<Foo> foos}.
+ * a method signature {@code List<MyType> myObjects}.
  *
  * @author Marius Bogoevici
  * @author Gary Russell
@@ -63,11 +64,13 @@ import org.springframework.messaging.support.MessageBuilder;
  * @author Sanghyeok An
  * @author Hope Kim
  * @author Borahm Lee
+ * @author Artem Bilan
+ *
  * @since 1.1
  */
 public class BatchMessagingMessageConverter implements BatchMessageConverter {
 
-	protected final LogAccessor logger = new LogAccessor(LogFactory.getLog(getClass())); // NOSONAR
+	protected final LogAccessor logger = new LogAccessor(getClass()); // NOSONAR
 
 	@Nullable
 	private final RecordMessageConverter recordConverter;
@@ -76,7 +79,7 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 
 	private boolean generateTimestamp = false;
 
-	private KafkaHeaderMapper headerMapper;
+	private @Nullable KafkaHeaderMapper headerMapper;
 
 	private boolean rawRecordHeader;
 
@@ -102,7 +105,7 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 
 	/**
 	 * Generate {@link Message} {@code ids} for produced messages. If set to {@code false},
-	 * will try to use a default value. By default set to {@code false}.
+	 * will try to use a default value. By default, set to {@code false}.
 	 * @param generateMessageId true if a message id should be generated
 	 */
 	public void setGenerateMessageId(boolean generateMessageId) {
@@ -111,7 +114,7 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 
 	/**
 	 * Generate {@code timestamp} for produced messages. If set to {@code false}, -1 is
-	 * used instead. By default set to {@code false}.
+	 * used instead. By default, set to {@code false}.
 	 * @param generateTimestamp true if a timestamp should be generated
 	 */
 	public void setGenerateTimestamp(boolean generateTimestamp) {
@@ -145,10 +148,10 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 
 	@Override // NOSONAR
 	public Message<?> toMessage(List<ConsumerRecord<?, ?>> records, @Nullable Acknowledgment acknowledgment,
-			Consumer<?, ?> consumer, Type type) {
+			@Nullable Consumer<?, ?> consumer, Type type) {
 
-		KafkaMessageHeaders kafkaMessageHeaders = new KafkaMessageHeaders(this.generateMessageId,
-				this.generateTimestamp);
+		KafkaMessageHeaders kafkaMessageHeaders =
+				new KafkaMessageHeaders(this.generateMessageId, this.generateTimestamp);
 
 		Map<String, Object> rawHeaders = kafkaMessageHeaders.getRawHeaders();
 		List<Object> payloads = new ArrayList<>();
@@ -169,16 +172,18 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 
 		String listenerInfo = null;
 		for (ConsumerRecord<?, ?> record : records) {
-			addRecordInfo(record, type, payloads, keys, topics, partitions, offsets, timestampTypes, timestamps, conversionFailures);
-			if (this.headerMapper != null && record.headers() != null) {
-				Map<String, Object> converted = convertHeaders(record.headers(), convertedHeaders);
+			addRecordInfo(record, type, payloads, keys, topics, partitions, offsets, timestampTypes, timestamps,
+					conversionFailures);
+			Headers recordHeaders = record.headers();
+			if (this.headerMapper != null && recordHeaders != null) {
+				Map<String, Object> converted = convertHeaders(recordHeaders, convertedHeaders);
 				Object obj = converted.get(KafkaHeaders.LISTENER_INFO);
-				if (obj instanceof String) {
-					listenerInfo = (String) obj;
+				if (obj instanceof String info) {
+					listenerInfo = info;
 				}
 			}
 			else {
-				natives.add(record.headers());
+				natives.add(recordHeaders);
 			}
 			if (this.rawRecordHeader) {
 				raws.add(record);
@@ -198,6 +203,7 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 
 	private void addToRawHeaders(Map<String, Object> rawHeaders, List<Map<String, Object>> convertedHeaders,
 			List<Headers> natives, List<ConsumerRecord<?, ?>> raws, List<ConversionException> conversionFailures) {
+
 		if (this.headerMapper != null) {
 			rawHeaders.put(KafkaHeaders.BATCH_CONVERTED_HEADERS, convertedHeaders);
 		}
@@ -211,20 +217,22 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 	}
 
 	private void addRecordInfo(ConsumerRecord<?, ?> record, Type type, List<Object> payloads, List<Object> keys,
-		List<String> topics, List<Integer> partitions, List<Long> offsets, List<String> timestampTypes,
-		List<Long> timestamps, List<ConversionException> conversionFailures) {
+			List<String> topics, List<Integer> partitions, List<Long> offsets, List<String> timestampTypes,
+			List<Long> timestamps, List<ConversionException> conversionFailures) {
+
 		payloads.add(obtainPayload(type, record, conversionFailures));
 		keys.add(record.key());
 		topics.add(record.topic());
 		partitions.add(record.partition());
 		offsets.add(record.offset());
 		timestamps.add(record.timestamp());
-		if (record.timestampType() != null) {
-			timestampTypes.add(record.timestampType().name());
+		TimestampType timestampType = record.timestampType();
+		if (timestampType != null) {
+			timestampTypes.add(timestampType.name());
 		}
 	}
 
-	private Object obtainPayload(Type type, ConsumerRecord<?, ?> record, List<ConversionException> conversionFailures) {
+	private @Nullable Object obtainPayload(Type type, ConsumerRecord<?, ?> record, List<ConversionException> conversionFailures) {
 		return this.recordConverter == null || !containerType(type)
 				? extractAndConvertValue(record, type)
 				: convert(record, type, conversionFailures);
@@ -232,7 +240,9 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 
 	private Map<String, Object> convertHeaders(Headers headers, List<Map<String, Object>> convertedHeaders) {
 		Map<String, Object> converted = new HashMap<>();
-		this.headerMapper.toHeaders(headers, converted);
+		if (this.headerMapper != null) {
+			this.headerMapper.toHeaders(headers, converted);
+		}
 		convertedHeaders.add(converted);
 		return converted;
 	}
@@ -261,27 +271,37 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 	 * @param conversionFailures Conversion failures.
 	 * @return the converted payload.
 	 */
-	protected Object convert(ConsumerRecord<?, ?> record, Type type, List<ConversionException> conversionFailures) {
+	protected @Nullable Object convert(ConsumerRecord<?, ?> record, Type type, List<ConversionException> conversionFailures) {
 		try {
-			Object payload = this.recordConverter
-				.toMessage(record, null, null, ((ParameterizedType) type).getActualTypeArguments()[0]).getPayload();
-			conversionFailures.add(null);
-			return payload;
+			if (this.recordConverter != null) {
+				Object payload = this.recordConverter
+						.toMessage(record, null, null, ((ParameterizedType) type).getActualTypeArguments()[0]).getPayload();
+				conversionFailures.add(null);
+				return payload;
+			}
+			else {
+				return null;
+			}
 		}
 		catch (ConversionException ex) {
 			byte[] original = null;
-			if (record.value() instanceof byte[]) {
-				original = (byte[]) record.value();
+			if (record.value() instanceof byte[] bytes) {
+				original = bytes;
 			}
-			else if (record.value() instanceof Bytes) {
-				original = ((Bytes) record.value()).get();
+			else if (record.value() instanceof Bytes bytes) {
+				original = bytes.get();
 			}
-			else if (record.value() instanceof String) {
-				original = ((String) record.value()).getBytes(StandardCharsets.UTF_8);
+			else if (record.value() instanceof String string) {
+				original = string.getBytes(StandardCharsets.UTF_8);
 			}
 			if (original != null) {
 				SerializationUtils.deserializationException(record.headers(), original, ex, false);
 				conversionFailures.add(ex);
+				this.logger.warn(ex,
+						LogMessage.format("Could not convert message for topic=%s, partition=%d, offset=%d",
+								record.topic(),
+								record.partition(),
+								record.offset()));
 				return null;
 			}
 			throw new ConversionException("The batch converter can only report conversion failures to the listener "
@@ -296,8 +316,8 @@ public class BatchMessagingMessageConverter implements BatchMessageConverter {
 	 * @return true if the conditions are met.
 	 */
 	private boolean containerType(Type type) {
-		return type instanceof ParameterizedType
-				&& ((ParameterizedType) type).getActualTypeArguments().length == 1;
+		return type instanceof ParameterizedType parameterizedType
+				&& parameterizedType.getActualTypeArguments().length == 1;
 	}
 
 }

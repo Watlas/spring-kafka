@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2024 the original author or authors.
+ * Copyright 2018-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -44,6 +45,7 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.header.internals.RecordHeaders;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.log.LogAccessor;
 import org.springframework.kafka.KafkaException;
@@ -54,7 +56,6 @@ import org.springframework.kafka.support.KafkaUtils;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.kafka.support.serializer.SerializationUtils;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
 
@@ -65,6 +66,7 @@ import org.springframework.util.ObjectUtils;
  * @author Gary Russell
  * @author Tomaz Fernandes
  * @author Watlas R
+ * @author Borahm Lee
  * @since 2.2
  *
  */
@@ -86,11 +88,11 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 
 	private final BiFunction<ConsumerRecord<?, ?>, Exception, TopicPartition> destinationResolver;
 
-	private final Function<ProducerRecord<?, ?>, KafkaOperations<?, ?>> templateResolver;
+	private final Function<ProducerRecord<?, ?>, @Nullable KafkaOperations<?, ?>> templateResolver;
 
 	private final EnumSet<HeaderNames.HeadersToAdd> whichHeaders = EnumSet.allOf(HeaderNames.HeadersToAdd.class);
 
-	private HeaderNames headerNames = getHeaderNames();
+	private @Nullable HeaderNames headerNames;
 
 	private boolean retainExceptionHeader;
 
@@ -173,7 +175,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 	 * template from the map values iterator will be used.
 	 * @param templates the {@link KafkaOperations}s to use for publishing.
 	 */
-	public DeadLetterPublishingRecoverer(Map<Class<?>, KafkaOperations<? extends Object, ? extends Object>> templates) {
+	public DeadLetterPublishingRecoverer(Map<Class<?>, @Nullable KafkaOperations<? extends Object, ? extends Object>> templates) {
 		this(templates, DEFAULT_DESTINATION_RESOLVER);
 	}
 
@@ -191,7 +193,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 	 * @param destinationResolver the resolving function.
 	 */
 	@SuppressWarnings("unchecked")
-	public DeadLetterPublishingRecoverer(Map<Class<?>, KafkaOperations<? extends Object, ? extends Object>> templates,
+	public DeadLetterPublishingRecoverer(Map<Class<?>, @Nullable KafkaOperations<? extends Object, ? extends Object>> templates,
 			BiFunction<ConsumerRecord<?, ?>, Exception, TopicPartition> destinationResolver) {
 
 		Assert.isTrue(!ObjectUtils.isEmpty(templates), "At least one template is required");
@@ -204,7 +206,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 		Boolean tx = this.transactional;
 		Assert.isTrue(templates.values()
 			.stream()
-			.map(t -> t.isTransactional())
+			.map(t -> Objects.requireNonNull(t).isTransactional())
 			.allMatch(t -> t.equals(tx)), "All templates must have the same setting for transactional");
 		this.destinationResolver = destinationResolver;
 	}
@@ -221,7 +223,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 	* @param destinationResolver the resolving function.
 	* @since 3.0.9
 	*/
-	public DeadLetterPublishingRecoverer(Function<ProducerRecord<?, ?>, KafkaOperations<?, ?>> templateResolver,
+	public DeadLetterPublishingRecoverer(Function<ProducerRecord<?, ?>, @Nullable KafkaOperations<?, ?>> templateResolver,
 										BiFunction<ConsumerRecord<?, ?>, Exception, TopicPartition> destinationResolver) {
 		this(templateResolver, false, destinationResolver);
 	}
@@ -239,7 +241,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 	* @param destinationResolver the resolving function.
 	* @since 2.7
 	*/
-	public DeadLetterPublishingRecoverer(Function<ProducerRecord<?, ?>, KafkaOperations<?, ?>> templateResolver,
+	public DeadLetterPublishingRecoverer(Function<ProducerRecord<?, ?>, @Nullable KafkaOperations<?, ?>> templateResolver,
 										boolean transactional,
 										BiFunction<ConsumerRecord<?, ?>, Exception, TopicPartition> destinationResolver) {
 
@@ -497,7 +499,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 		}
 	}
 
-	@SuppressWarnings("unchecked")
+	@SuppressWarnings({"unchecked", "NullAway"})
 	@Override
 	public void accept(ConsumerRecord<?, ?> record, @Nullable Consumer<?, ?> consumer, Exception exception) {
 		TopicPartition tp = this.destinationResolver.apply(record, exception);
@@ -571,7 +573,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 
 	private void maybeThrow(ConsumerRecord<?, ?> record, Exception exception) {
 		String message = String.format("No destination returned for record %s and exception %s. " +
-				"failIfNoDestinationReturned: %s", KafkaUtils.format(record), exception,
+				"throwIfNoDestinationReturned: %s", KafkaUtils.format(record), exception,
 				this.throwIfNoDestinationReturned);
 		this.logger.warn(message);
 		if (this.throwIfNoDestinationReturned) {
@@ -625,8 +627,8 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 	}
 
 	@SuppressWarnings("unchecked")
-	private KafkaOperations<Object, Object> findTemplateForValue(@Nullable Object value,
-			Map<Class<?>, KafkaOperations<?, ?>> templates) {
+	private @Nullable KafkaOperations<Object, Object> findTemplateForValue(@Nullable Object value,
+			Map<Class<?>, @Nullable KafkaOperations<?, ?>> templates) {
 
 		if (value == null) {
 			KafkaOperations<?, ?> operations = templates.get(Void.class);
@@ -666,6 +668,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 	 * @return the producer record to send.
 	 * @see KafkaHeaders
 	 */
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
 	protected ProducerRecord<Object, Object> createProducerRecord(ConsumerRecord<?, ?> record,
 			TopicPartition topicPartition, Headers headers, @Nullable byte[] key, @Nullable byte[] value) {
 
@@ -777,7 +780,7 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 	}
 
 	private void maybeAddOriginalHeaders(Headers kafkaHeaders, ConsumerRecord<?, ?> record, Exception ex) {
-		maybeAddHeader(kafkaHeaders, this.headerNames.original.topicHeader,
+		maybeAddHeader(kafkaHeaders, Objects.requireNonNull(this.headerNames).original.topicHeader,
 				() -> record.topic().getBytes(StandardCharsets.UTF_8), HeaderNames.HeadersToAdd.TOPIC);
 		maybeAddHeader(kafkaHeaders, this.headerNames.original.partitionHeader,
 				() -> ByteBuffer.allocate(Integer.BYTES).putInt(record.partition()).array(),
@@ -836,13 +839,13 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 	}
 
 	@Nullable
-	private String buildMessage(Exception exception, Throwable cause) {
+	private String buildMessage(Exception exception, @Nullable Throwable cause) {
 		String message = exception.getMessage();
 		if (!exception.equals(cause)) {
 			if (message != null) {
 				message = message + "; ";
 			}
-			String causeMsg = cause.getMessage();
+			String causeMsg = Objects.requireNonNull(cause).getMessage();
 			if (causeMsg != null) {
 				if (message != null) {
 					message = message + causeMsg;
@@ -871,20 +874,6 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 		PrintWriter printWriter = new PrintWriter(stringWriter, true);
 		cause.printStackTrace(printWriter);
 		return stringWriter.getBuffer().toString();
-	}
-
-	/**
-	 * Override this if you want different header names to be used
-	 * in the sent record.
-	 * @return the header names.
-	 * @since 2.7
-	 * @deprecated since 3.0.9 - provide a supplier instead.
-	 * @see #setHeaderNamesSupplier(Supplier)
-	 */
-	@Nullable
-	@Deprecated(since = "3.0.9", forRemoval = true) // 3.2
-	protected HeaderNames getHeaderNames() {
-		return null;
 	}
 
 	/**
@@ -1194,17 +1183,17 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 			 */
 			public class Original {
 
-				private String offsetHeader;
+				private @Nullable String offsetHeader;
 
-				private String timestampHeader;
+				private @Nullable String timestampHeader;
 
-				private String timestampTypeHeader;
+				private @Nullable String timestampTypeHeader;
 
-				private String topicHeader;
+				private @Nullable String topicHeader;
 
-				private String partitionHeader;
+				private @Nullable String partitionHeader;
 
-				private String consumerGroupHeader;
+				private @Nullable String consumerGroupHeader;
 
 				/**
 				 * Sets the name of the header that will be used to store the offset
@@ -1316,19 +1305,19 @@ public class DeadLetterPublishingRecoverer extends ExceptionClassifier implement
 			 */
 			public class ExceptionInfo {
 
-				private String keyExceptionFqcn;
+				private @Nullable String keyExceptionFqcn;
 
-				private String exceptionFqcn;
+				private @Nullable String exceptionFqcn;
 
-				private String exceptionCauseFqcn;
+				private @Nullable String exceptionCauseFqcn;
 
-				private String keyExceptionMessage;
+				private @Nullable String keyExceptionMessage;
 
-				private String exceptionMessage;
+				private @Nullable String exceptionMessage;
 
-				private String keyExceptionStacktrace;
+				private @Nullable String keyExceptionStacktrace;
 
-				private String exceptionStacktrace;
+				private @Nullable String exceptionStacktrace;
 
 				/**
 				 * Sets the name of the header that will be used to store the keyExceptionFqcn

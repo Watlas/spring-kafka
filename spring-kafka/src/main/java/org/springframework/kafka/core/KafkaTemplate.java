@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2024 the original author or authors.
+ * Copyright 2015-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,6 +53,7 @@ import org.apache.kafka.common.Metric;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.factory.BeanNameAware;
 import org.springframework.beans.factory.DisposableBean;
@@ -76,7 +77,6 @@ import org.springframework.kafka.support.micrometer.KafkaTemplateObservation;
 import org.springframework.kafka.support.micrometer.KafkaTemplateObservation.DefaultKafkaTemplateObservationConvention;
 import org.springframework.kafka.support.micrometer.KafkaTemplateObservationConvention;
 import org.springframework.kafka.support.micrometer.MicrometerHolder;
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.converter.SmartMessageConverter;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -103,6 +103,8 @@ import org.springframework.util.StringUtils;
  * @author Soby Chacko
  * @author Gurps Bassi
  * @author Valentina Armenise
+ * @author Christian Fredriksson
+ * @author Francois Rosiere
  */
 public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationContextAware, BeanNameAware,
 		ApplicationListener<ContextStoppedEvent>, DisposableBean, SmartInitializingSingleton {
@@ -125,15 +127,15 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 
 	private String beanName = "kafkaTemplate";
 
-	private ApplicationContext applicationContext;
+	private @Nullable ApplicationContext applicationContext;
 
 	private RecordMessageConverter messageConverter = new MessagingMessageConverter();
 
-	private String defaultTopic;
+	private @Nullable String defaultTopic;
 
-	private ProducerListener<K, V> producerListener = new LoggingProducerListener<>();
+	private @Nullable ProducerListener<K, V> producerListener = new LoggingProducerListener<>();
 
-	private String transactionIdPrefix;
+	private @Nullable String transactionIdPrefix;
 
 	private Duration closeTimeout = ProducerFactoryUtils.DEFAULT_CLOSE_TIMEOUT;
 
@@ -141,27 +143,25 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 
 	private boolean converterSet;
 
-	private ConsumerFactory<K, V> consumerFactory;
+	private @Nullable ConsumerFactory<K, V> consumerFactory;
 
-	private ProducerInterceptor<K, V> producerInterceptor;
+	private @Nullable ProducerInterceptor<K, V> producerInterceptor;
 
 	private boolean micrometerEnabled = true;
 
-	private MicrometerHolder micrometerHolder;
+	private @Nullable MicrometerHolder micrometerHolder;
 
 	private boolean observationEnabled;
 
-	private KafkaTemplateObservationConvention observationConvention;
+	private @Nullable KafkaTemplateObservationConvention observationConvention;
 
 	private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
 
-	@Nullable
-	private Function<ProducerRecord<?, ?>, Map<String, String>> micrometerTagsProvider;
+	private @Nullable Function<ProducerRecord<?, ?>, Map<String, String>> micrometerTagsProvider;
 
-	@Nullable
-	private KafkaAdmin kafkaAdmin;
+	private @Nullable KafkaAdmin kafkaAdmin;
 
-	private String clusterId;
+	private @Nullable String clusterId;
 
 	/**
 	 * Create an instance using the supplied producer factory and autoFlush false.
@@ -255,7 +255,7 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 	 * provided.
 	 * @return the topic.
 	 */
-	public String getDefaultTopic() {
+	public @Nullable String getDefaultTopic() {
 		return this.defaultTopic;
 	}
 
@@ -314,7 +314,7 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 		return this.transactional;
 	}
 
-	public String getTransactionIdPrefix() {
+	public @Nullable String getTransactionIdPrefix() {
 		return this.transactionIdPrefix;
 	}
 
@@ -457,6 +457,25 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 	}
 
 	/**
+	 * Configure the {@link ObservationRegistry} to use for recording observations.
+	 * @param observationRegistry the observation registry to use.
+	 * @since 3.3.1
+	 */
+	public void setObservationRegistry(ObservationRegistry observationRegistry) {
+		Assert.notNull(observationRegistry, "'observationRegistry' must not be null");
+		this.observationRegistry = observationRegistry;
+	}
+
+	/**
+	 * Return the {@link ObservationRegistry} used by the template.
+	 * @return the observation registry
+	 * @since 3.2.9
+	 */
+	protected ObservationRegistry getObservationRegistry() {
+		return this.observationRegistry;
+	}
+
+	/**
 	 * Return the {@link KafkaAdmin}, used to find the cluster id for observation, if
 	 * present.
 	 * @return the kafkaAdmin
@@ -479,13 +498,17 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 	@Override
 	public void afterSingletonsInstantiated() {
 		if (this.observationEnabled && this.applicationContext != null) {
-			this.observationRegistry = this.applicationContext.getBeanProvider(ObservationRegistry.class)
-					.getIfUnique(() -> this.observationRegistry);
+			if (this.observationRegistry.isNoop()) {
+				this.observationRegistry = this.applicationContext.getBeanProvider(ObservationRegistry.class)
+						.getIfUnique(() -> this.observationRegistry);
+			}
 			if (this.kafkaAdmin == null) {
 				this.kafkaAdmin = this.applicationContext.getBeanProvider(KafkaAdmin.class).getIfUnique();
 				if (this.kafkaAdmin != null) {
-					String producerServers = this.producerFactory.getConfigurationProperties()
-							.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG).toString();
+					Object bootstrapServerConfig = this.producerFactory.getConfigurationProperties()
+							.get(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG);
+					Assert.state(bootstrapServerConfig != null, "'bootstrapServers' must not be null");
+					String producerServers = bootstrapServerConfig.toString();
 					producerServers = removeLeadingAndTrailingBrackets(producerServers);
 					String adminServers = getAdminBootstrapAddress();
 					if (!producerServers.equals(adminServers)) {
@@ -509,19 +532,24 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 
 	private String getAdminBootstrapAddress() {
 		// Retrieve bootstrap servers from KafkaAdmin bootstrap supplier if available
-		String adminServers = this.kafkaAdmin.getBootstrapServers();
+		String adminServers = this.kafkaAdmin == null ? null : this.kafkaAdmin.getBootstrapServers();
 		// Fallback to configuration properties if bootstrap servers are not set
-		if (adminServers == null) {
+		if (adminServers == null && this.kafkaAdmin != null) {
 			adminServers = this.kafkaAdmin.getConfigurationProperties().getOrDefault(
 					AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
 					""
 			).toString();
 		}
-		return removeLeadingAndTrailingBrackets(adminServers);
+		return removeLeadingAndTrailingBrackets(adminServers == null ? "" : adminServers);
 	}
 
+	/**
+	 * Return the cluster id, if available.
+	 * @return the cluster id.
+	 * @since 3.2.9
+	 */
 	@Nullable
-	private String clusterId() {
+	protected String clusterId() {
 		if (this.kafkaAdmin != null && this.clusterId == null) {
 			this.clusterIdLock.lock();
 			try {
@@ -545,21 +573,25 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 
 	@Override
 	public CompletableFuture<SendResult<K, V>> sendDefault(@Nullable V data) {
+		Assert.state(this.defaultTopic != null, "'defaultTopic' must not be null");
 		return send(this.defaultTopic, data);
 	}
 
 	@Override
 	public CompletableFuture<SendResult<K, V>> sendDefault(K key, @Nullable V data) {
+		Assert.state(this.defaultTopic != null, "'defaultTopic' must not be null");
 		return send(this.defaultTopic, key, data);
 	}
 
 	@Override
 	public CompletableFuture<SendResult<K, V>> sendDefault(Integer partition, K key, @Nullable V data) {
+		Assert.state(this.defaultTopic != null, "'defaultTopic' must not be null");
 		return send(this.defaultTopic, partition, key, data);
 	}
 
 	@Override
 	public CompletableFuture<SendResult<K, V>> sendDefault(Integer partition, Long timestamp, K key, @Nullable V data) {
+		Assert.state(this.defaultTopic != null, "'defaultTopic' must not be null");
 		return send(this.defaultTopic, partition, timestamp, key, data);
 	}
 
@@ -643,7 +675,7 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 	}
 
 	@Override
-	public <T> T executeInTransaction(OperationsCallback<K, V, T> callback) {
+	public <T> @Nullable T executeInTransaction(OperationsCallback<K, V, T> callback) {
 		Assert.notNull(callback, "'callback' cannot be null");
 		Assert.state(this.transactional, "Producer factory does not support transactions");
 		Thread currentThread = Thread.currentThread();
@@ -717,6 +749,7 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 	@Nullable
 	public ConsumerRecord<K, V> receive(String topic, int partition, long offset, Duration pollTimeout) {
 		Properties props = oneOnly();
+		Assert.notNull(this.consumerFactory, "A consumerFactory is required");
 		try (Consumer<K, V> consumer = this.consumerFactory.createConsumer(null, null, null, props)) {
 			TopicPartition topicPartition = new TopicPartition(topic, partition);
 			return receiveOne(topicPartition, offset, pollTimeout, consumer);
@@ -727,6 +760,7 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 	public ConsumerRecords<K, V> receive(Collection<TopicPartitionOffset> requested, Duration pollTimeout) {
 		Properties props = oneOnly();
 		Map<TopicPartition, List<ConsumerRecord<K, V>>> records = new LinkedHashMap<>();
+		Assert.notNull(this.consumerFactory, "A consumerFactory is required");
 		try (Consumer<K, V> consumer = this.consumerFactory.createConsumer(null, null, null, props)) {
 			requested.forEach(tpo -> {
 				if (tpo.getOffset() == null || tpo.getOffset() < 0) {
@@ -738,7 +772,7 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 					consumerRecords.add(one);
 				}
 			});
-			return new ConsumerRecords<>(records);
+			return new ConsumerRecords<>(records, Map.of());
 		}
 	}
 
@@ -786,8 +820,8 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 				this.observationConvention, DefaultKafkaTemplateObservationConvention.INSTANCE,
 				() -> new KafkaRecordSenderContext(producerRecord, this.beanName, this::clusterId),
 				this.observationRegistry);
+		observation.start();
 		try {
-			observation.start();
 			try (Observation.Scope ignored = observation.openScope()) {
 				return doSend(producerRecord, observation);
 			}
@@ -892,22 +926,26 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 
 	private void successTimer(@Nullable Object sample, ProducerRecord<?, ?> record) {
 		if (sample != null) {
-			if (this.micrometerTagsProvider == null) {
+			if (this.micrometerTagsProvider == null && this.micrometerHolder != null) {
 				this.micrometerHolder.success(sample);
 			}
 			else {
-				this.micrometerHolder.success(sample, record);
+				if (this.micrometerHolder != null) {
+					this.micrometerHolder.success(sample, record);
+				}
 			}
 		}
 	}
 
 	private void failureTimer(@Nullable Object sample, Exception exception, ProducerRecord<?, ?> record) {
 		if (sample != null) {
-			if (this.micrometerTagsProvider == null) {
+			if (this.micrometerTagsProvider == null && this.micrometerHolder != null) {
 				this.micrometerHolder.failure(sample, exception.getClass().getSimpleName());
 			}
 			else {
-				this.micrometerHolder.failure(sample, exception.getClass().getSimpleName(), record);
+				if (this.micrometerHolder != null) {
+					this.micrometerHolder.failure(sample, exception.getClass().getSimpleName(), record);
+				}
 			}
 		}
 	}
@@ -969,11 +1007,11 @@ public class KafkaTemplate<K, V> implements KafkaOperations<K, V>, ApplicationCo
 		MicrometerHolder holder = null;
 		try {
 			if (KafkaUtils.MICROMETER_PRESENT) {
-				Function<Object, Map<String, String>> mergedProvider = cr -> this.micrometerTags;
+				Function<@Nullable Object, Map<String, String>> mergedProvider = cr -> this.micrometerTags;
 				if (this.micrometerTagsProvider != null) {
 					mergedProvider = cr -> {
 						Map<String, String> tags = new HashMap<>(this.micrometerTags);
-						if (cr != null) {
+						if (cr != null && this.micrometerTagsProvider != null) {
 							tags.putAll(this.micrometerTagsProvider.apply((ProducerRecord<?, ?>) cr));
 						}
 						return tags;

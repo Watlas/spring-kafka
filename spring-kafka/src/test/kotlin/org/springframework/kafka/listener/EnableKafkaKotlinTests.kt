@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -168,7 +168,7 @@ class EnableKafkaKotlinTests {
 		fun kafkaListenerContainerFactory(): ConcurrentKafkaListenerContainerFactory<String, String> {
 			val factory: ConcurrentKafkaListenerContainerFactory<String, String>
 				= ConcurrentKafkaListenerContainerFactory()
-			factory.consumerFactory = kcf()
+			factory.setConsumerFactory(kcf())
 			factory.setCommonErrorHandler(eh)
 			factory.setRecordMessageConverter(JsonMessageConverter())
 			return factory
@@ -178,8 +178,8 @@ class EnableKafkaKotlinTests {
 		fun kafkaBatchListenerContainerFactory(): ConcurrentKafkaListenerContainerFactory<String, String> {
 			val factory: ConcurrentKafkaListenerContainerFactory<String, String>
 					= ConcurrentKafkaListenerContainerFactory()
-			factory.isBatchListener = true
-			factory.consumerFactory = kcf()
+			factory.setBatchListener(true)
+			factory.setConsumerFactory(kcf())
 			factory.setCommonErrorHandler(eh)
 			return factory
 		}
@@ -203,12 +203,12 @@ class EnableKafkaKotlinTests {
 				ConcurrentMessageListenerContainer<String, String> {
 
 			val container = kafkaListenerContainerFactory.createContainer("kotlinTestTopic2")
-			container.containerProperties.groupId = "checkedEx"
-			container.containerProperties.messageListener = MessageListener<String, String> {
+			container.containerProperties.setGroupId("checkedEx")
+			container.containerProperties.setMessageListener(MessageListener<String, String> {
 				if (it.value() == "fail") {
 					throw Exception("checked")
 				}
-			}
+			})
 			return container;
 		}
 
@@ -218,12 +218,12 @@ class EnableKafkaKotlinTests {
 				ConcurrentMessageListenerContainer<String, String> {
 
 			val container = kafkaBatchListenerContainerFactory.createContainer("kotlinBatchTestTopic2")
-			container.containerProperties.groupId = "batchCheckedEx"
-			container.containerProperties.messageListener = BatchMessageListener<String, String> {
+			container.containerProperties.setGroupId("batchCheckedEx")
+			container.containerProperties.setMessageListener(BatchMessageListener<String, String> {
 				if (it.first().value() == "fail") {
 					throw Exception("checked")
 				}
-			}
+			})
 			return container;
 		}
 

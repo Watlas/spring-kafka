@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -36,6 +37,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.serialization.Deserializer;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanNameAware;
@@ -43,7 +45,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.core.env.EnvironmentCapable;
 import org.springframework.core.log.LogAccessor;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
@@ -87,15 +88,15 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 
 	private final List<ConsumerPostProcessor<K, V>> postProcessors = new ArrayList<>();
 
-	private Supplier<Deserializer<K>> keyDeserializerSupplier;
+	private @Nullable Supplier<Deserializer<K>> keyDeserializerSupplier;
 
-	private Supplier<Deserializer<V>> valueDeserializerSupplier;
+	private @Nullable Supplier<Deserializer<V>> valueDeserializerSupplier;
 
 	private String beanName = "not.managed.by.Spring";
 
 	private boolean configureDeserializers = true;
 
-	private ApplicationContext applicationContext;
+	private @Nullable ApplicationContext applicationContext;
 
 	/**
 	 * Construct a factory with the provided configuration.
@@ -245,12 +246,12 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 
 	@Override
 	public Deserializer<K> getKeyDeserializer() {
-		return this.keyDeserializerSupplier.get();
+		return Objects.requireNonNull(this.keyDeserializerSupplier).get();
 	}
 
 	@Override
 	public Deserializer<V> getValueDeserializer() {
-		return this.valueDeserializerSupplier.get();
+		return Objects.requireNonNull(this.valueDeserializerSupplier).get();
 	}
 
 	/**
@@ -492,7 +493,7 @@ public class DefaultKafkaConsumerFactory<K, V> extends KafkaResourceFactory
 
 	protected class ExtendedKafkaConsumer extends KafkaConsumer<K, V> {
 
-		private String idForListeners;
+		private @Nullable String idForListeners;
 
 		protected ExtendedKafkaConsumer(Map<String, Object> configProps) {
 			super(configProps, keyDeserializer(configProps), valueDeserializer(configProps));

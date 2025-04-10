@@ -1,5 +1,5 @@
 /*
- * Copyright 2021-2024 the original author or authors.
+ * Copyright 2021-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package org.springframework.kafka.listener;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.BiConsumer;
@@ -31,6 +32,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.WakeupException;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.classify.BinaryExceptionClassifier;
 import org.springframework.core.log.LogAccessor;
@@ -38,7 +40,6 @@ import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.support.KafkaUtils;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
-import org.springframework.lang.Nullable;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.backoff.BackOff;
 import org.springframework.util.backoff.BackOffExecution;
@@ -152,7 +153,8 @@ public final class ErrorHandlingUtils {
 					logger.debug(ex, () -> "Retry failed for: " + toLog);
 					recoveryException = ex;
 					Exception newException = unwrapIfNeeded(ex);
-					if (reClassifyOnExceptionChange && !newException.getClass().equals(lastException.getClass())
+					if (reClassifyOnExceptionChange && !Objects.requireNonNull(newException).getClass()
+							.equals(Objects.requireNonNull(lastException).getClass())
 							&& !classifier.classify(newException)) {
 
 						break;
@@ -204,7 +206,7 @@ public final class ErrorHandlingUtils {
 	 * @return the unwrapped cause or cause of cause.
 	 * @since 2.8.11
 	 */
-	public static Exception unwrapIfNeeded(Exception exception) {
+	public static @Nullable Exception unwrapIfNeeded(@Nullable Exception exception) {
 		Exception theEx = exception;
 		if (theEx instanceof TimestampedException && theEx.getCause() instanceof Exception cause) {
 			theEx = cause;
@@ -222,7 +224,7 @@ public final class ErrorHandlingUtils {
 	 * @return the root cause.
 	 * @since 3.0.7
 	 */
-	public static Exception findRootCause(Exception exception) {
+	public static @Nullable Exception findRootCause(@Nullable Exception exception) {
 		Exception realException = exception;
 		while ((realException  instanceof ListenerExecutionFailedException
 				|| realException instanceof TimestampedException)

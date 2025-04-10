@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2024 the original author or authors.
+ * Copyright 2014-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.InitializingBean;
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.handler.annotation.support.MessageHandlerMethodFactory;
 import org.springframework.messaging.handler.invocation.HandlerMethodArgumentResolver;
 import org.springframework.util.Assert;
@@ -40,6 +43,7 @@ import org.springframework.validation.Validator;
  * @author Gary Russell
  * @author Filip Halemba
  * @author Wang Zhiyang
+ * @author Omer Celik
  *
  * @see org.springframework.kafka.annotation.KafkaListenerConfigurer
  */
@@ -49,19 +53,21 @@ public class KafkaListenerEndpointRegistrar implements BeanFactoryAware, Initial
 
 	private List<HandlerMethodArgumentResolver> customMethodArgumentResolvers = new ArrayList<>();
 
-	private KafkaListenerEndpointRegistry endpointRegistry;
+	private final Lock endpointsLock = new ReentrantLock();
 
-	private MessageHandlerMethodFactory messageHandlerMethodFactory;
+	private @Nullable KafkaListenerEndpointRegistry endpointRegistry;
 
-	private KafkaListenerContainerFactory<?> containerFactory;
+	private @Nullable MessageHandlerMethodFactory messageHandlerMethodFactory;
 
-	private String containerFactoryBeanName;
+	private @Nullable KafkaListenerContainerFactory<?> containerFactory;
 
-	private BeanFactory beanFactory;
+	private @Nullable String containerFactoryBeanName;
+
+	private @Nullable BeanFactory beanFactory;
 
 	private boolean startImmediately;
 
-	private Validator validator;
+	private @Nullable Validator validator;
 
 	/**
 	 * Set the {@link KafkaListenerEndpointRegistry} instance to use.
@@ -77,8 +83,7 @@ public class KafkaListenerEndpointRegistrar implements BeanFactoryAware, Initial
 	 * @return the {@link KafkaListenerEndpointRegistry} instance for this
 	 * registrar, may be {@code null}.
 	 */
-	@Nullable
-	public KafkaListenerEndpointRegistry getEndpointRegistry() {
+	public @Nullable KafkaListenerEndpointRegistry getEndpointRegistry() {
 		return this.endpointRegistry;
 	}
 
@@ -123,8 +128,7 @@ public class KafkaListenerEndpointRegistrar implements BeanFactoryAware, Initial
 	 * Return the custom {@link MessageHandlerMethodFactory} to use, if any.
 	 * @return the custom {@link MessageHandlerMethodFactory} to use, if any.
 	 */
-	@Nullable
-	public MessageHandlerMethodFactory getMessageHandlerMethodFactory() {
+	public @Nullable MessageHandlerMethodFactory getMessageHandlerMethodFactory() {
 		return this.messageHandlerMethodFactory;
 	}
 
@@ -166,8 +170,7 @@ public class KafkaListenerEndpointRegistrar implements BeanFactoryAware, Initial
 	 * @return the validator.
 	 * @since 2.2
 	 */
-	@Nullable
-	public Validator getValidator() {
+	public @Nullable Validator getValidator() {
 		return this.validator;
 	}
 
@@ -188,16 +191,22 @@ public class KafkaListenerEndpointRegistrar implements BeanFactoryAware, Initial
 	}
 
 	protected void registerAllEndpoints() {
-		synchronized (this.endpointDescriptors) {
+		try {
+			this.endpointsLock.lock();
 			for (KafkaListenerEndpointDescriptor descriptor : this.endpointDescriptors) {
 				if (descriptor.endpoint instanceof MultiMethodKafkaListenerEndpoint<?, ?> mmkle
 						&& this.validator != null) {
 					mmkle.setValidator(this.validator);
 				}
-				this.endpointRegistry.registerListenerContainer(
-						descriptor.endpoint, resolveContainerFactory(descriptor));
+				if (this.endpointRegistry != null) {
+					this.endpointRegistry.registerListenerContainer(
+							descriptor.endpoint, resolveContainerFactory(descriptor));
+				}
 			}
 			this.startImmediately = true;  // trigger immediate startup
+		}
+		finally {
+			this.endpointsLock.unlock();
 		}
 	}
 
@@ -234,14 +243,20 @@ public class KafkaListenerEndpointRegistrar implements BeanFactoryAware, Initial
 		Assert.hasText(endpoint.getId(), "Endpoint id must be set");
 		// Factory may be null, we defer the resolution right before actually creating the container
 		KafkaListenerEndpointDescriptor descriptor = new KafkaListenerEndpointDescriptor(endpoint, factory);
-		synchronized (this.endpointDescriptors) {
+		try {
+			this.endpointsLock.lock();
 			if (this.startImmediately) { // Register and start immediately
-				this.endpointRegistry.registerListenerContainer(descriptor.endpoint,
-						resolveContainerFactory(descriptor), true);
+				if (this.endpointRegistry != null) {
+					this.endpointRegistry.registerListenerContainer(descriptor.endpoint,
+							resolveContainerFactory(descriptor), true);
+				}
 			}
 			else {
 				this.endpointDescriptors.add(descriptor);
 			}
+		}
+		finally {
+			this.endpointsLock.unlock();
 		}
 	}
 
@@ -258,15 +273,15 @@ public class KafkaListenerEndpointRegistrar implements BeanFactoryAware, Initial
 
 
 	private record KafkaListenerEndpointDescriptor(KafkaListenerEndpoint endpoint,
-				KafkaListenerContainerFactory<?> containerFactory) {
+				@Nullable KafkaListenerContainerFactory<?> containerFactory) {
 
-			private KafkaListenerEndpointDescriptor(KafkaListenerEndpoint endpoint,
-					@Nullable KafkaListenerContainerFactory<?> containerFactory) {
+		private KafkaListenerEndpointDescriptor(KafkaListenerEndpoint endpoint,
+				@Nullable KafkaListenerContainerFactory<?> containerFactory) {
 
-				this.endpoint = endpoint;
-				this.containerFactory = containerFactory;
-			}
-
+			this.endpoint = endpoint;
+			this.containerFactory = containerFactory;
 		}
+
+	}
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +21,7 @@ import java.util.Map;
 import java.util.function.Function;
 
 import org.apache.kafka.common.TopicPartition;
-
-import org.springframework.lang.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Listeners that implement this interface are provided with a
@@ -61,7 +60,7 @@ public interface ConsumerSeekAware {
 	 * @param partitions the partitions that have been revoked.
 	 * @since 2.3
 	 */
-	default void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+	default void onPartitionsRevoked(@Nullable Collection<TopicPartition> partitions) {
 	}
 
 	/**

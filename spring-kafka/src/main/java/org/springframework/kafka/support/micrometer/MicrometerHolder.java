@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,10 +24,10 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.Timer.Builder;
 import io.micrometer.core.instrument.Timer.Sample;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.context.ApplicationContext;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -43,7 +43,7 @@ public final class MicrometerHolder {
 
 	private final Map<String, Timer> meters = new ConcurrentHashMap<>();
 
-	private final MeterRegistry registry;
+	private final @Nullable MeterRegistry registry;
 
 	private final String timerName;
 
@@ -51,7 +51,7 @@ public final class MicrometerHolder {
 
 	private final String name;
 
-	private final Function<Object, Map<String, String>> tagsProvider;
+	private final Function<@Nullable Object, Map<String, String>> tagsProvider;
 
 	/**
 	 * Create an instance with the provided properties.
@@ -63,7 +63,7 @@ public final class MicrometerHolder {
 	 * @since 2.9.7
 	 */
 	public MicrometerHolder(@Nullable ApplicationContext context, String name,
-			String timerName, String timerDesc, Function<Object, Map<String, String>> tagsProvider) {
+			String timerName, String timerDesc, Function<@Nullable Object, Map<String, String>> tagsProvider) {
 
 		Assert.notNull(tagsProvider, "'tagsProvider' cannot be null");
 		if (context == null) {
@@ -168,7 +168,9 @@ public final class MicrometerHolder {
 	 * Remove the timers.
 	 */
 	public void destroy() {
-		this.meters.values().forEach(this.registry::remove);
+		if (this.registry != null) {
+			this.meters.values().forEach(this.registry::remove);
+		}
 		this.meters.clear();
 	}
 

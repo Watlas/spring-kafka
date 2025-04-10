@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2024 the original author or authors.
+ * Copyright 2015-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,12 @@
 
 package org.springframework.kafka.listener.adapter;
 
-import org.springframework.lang.Nullable;
+import java.lang.reflect.Method;
+import java.util.Objects;
+
+import org.jspecify.annotations.Nullable;
+
+import org.springframework.core.KotlinDetector;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.handler.invocation.InvocableHandlerMethod;
 
@@ -26,13 +31,14 @@ import org.springframework.messaging.handler.invocation.InvocableHandlerMethod;
  * underlying handler.
  *
  * @author Gary Russell
+ * @author Artem Bilan
  *
  */
 public class HandlerAdapter {
 
-	private final InvocableHandlerMethod invokerHandlerMethod;
+	private final @Nullable InvocableHandlerMethod invokerHandlerMethod;
 
-	private final DelegatingInvocableHandler delegatingHandler;
+	private final @Nullable DelegatingInvocableHandler delegatingHandler;
 
 	private final boolean asyncReplies;
 
@@ -43,7 +49,10 @@ public class HandlerAdapter {
 	public HandlerAdapter(InvocableHandlerMethod invokerHandlerMethod) {
 		this.invokerHandlerMethod = invokerHandlerMethod;
 		this.delegatingHandler = null;
-		this.asyncReplies = AdapterUtils.isAsyncReply(invokerHandlerMethod.getMethod().getReturnType());
+		Method handlerMethod = invokerHandlerMethod.getMethod();
+		this.asyncReplies =
+				AdapterUtils.isAsyncReply(handlerMethod.getReturnType())
+						|| KotlinDetector.isSuspendingFunction(handlerMethod);
 	}
 
 	/**
@@ -66,11 +75,11 @@ public class HandlerAdapter {
 	}
 
 	@Nullable
-	public Object invoke(Message<?> message, Object... providedArgs) throws Exception { //NOSONAR
+	public Object invoke(Message<?> message, @Nullable Object... providedArgs) throws Exception { //NOSONAR
 		if (this.invokerHandlerMethod != null) {
 			return this.invokerHandlerMethod.invoke(message, providedArgs); // NOSONAR
 		}
-		else if (this.delegatingHandler.hasDefaultHandler()) {
+		else if (Objects.requireNonNull(this.delegatingHandler).hasDefaultHandler()) {
 			// Needed to avoid returning raw Message which matches Object
 			Object[] args = new Object[providedArgs.length + 1];
 			args[0] = message.getPayload();
@@ -87,7 +96,7 @@ public class HandlerAdapter {
 			return this.invokerHandlerMethod.getMethod().toGenericString();
 		}
 		else {
-			return this.delegatingHandler.getMethodNameFor(payload);
+			return Objects.requireNonNull(this.delegatingHandler).getMethodNameFor(payload);
 		}
 	}
 
@@ -96,7 +105,7 @@ public class HandlerAdapter {
 			return this.invokerHandlerMethod.getBean();
 		}
 		else {
-			return this.delegatingHandler.getBean();
+			return Objects.requireNonNull(this.delegatingHandler).getBean();
 		}
 	}
 

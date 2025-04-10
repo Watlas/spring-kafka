@@ -1,5 +1,5 @@
 /*
- * Copyright 2021-2024 the original author or authors.
+ * Copyright 2021-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,9 +25,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import org.apache.commons.logging.LogFactory;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
+
 import org.springframework.core.log.LogAccessor;
-import org.springframework.lang.NonNull;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
@@ -40,6 +42,7 @@ import org.springframework.util.StringUtils;
  * @author Gary Russell
  * @author Wang Zhiyang
  * @author Sanghyeok An
+ * @author Borahm Lee
  *
  * @since 2.8
  *
@@ -48,7 +51,7 @@ public abstract class DelegatingByTopicSerialization<T extends Closeable> implem
 
 	private static final String UNCHECKED = "unchecked";
 
-	private static final LogAccessor LOGGER = new LogAccessor(DelegatingDeserializer.class);
+	private static final LogAccessor LOGGER = new LogAccessor(LogFactory.getLog(DelegatingByTopicSerialization.class));
 
 	/**
 	 * Name of the configuration property containing the serialization selector map for
@@ -81,7 +84,7 @@ public abstract class DelegatingByTopicSerialization<T extends Closeable> implem
 
 	private final Set<String> patterns = ConcurrentHashMap.newKeySet();
 
-	private T defaultDelegate;
+	private @Nullable T defaultDelegate;
 
 	private boolean forKeys;
 
@@ -90,7 +93,7 @@ public abstract class DelegatingByTopicSerialization<T extends Closeable> implem
 	public DelegatingByTopicSerialization() {
 	}
 
-	public DelegatingByTopicSerialization(Map<Pattern, T> delegates, T defaultDelegate) {
+	public DelegatingByTopicSerialization(Map<Pattern, T> delegates, @Nullable T defaultDelegate) {
 		Assert.notNull(delegates, "'delegates' cannot be null");
 		Assert.notNull(defaultDelegate, "'defaultDelegate' cannot be null");
 		this.delegates.putAll(delegates);
@@ -257,7 +260,7 @@ public abstract class DelegatingByTopicSerialization<T extends Closeable> implem
 		}
 	}
 
-	protected T instantiateAndConfigure(Map<String, ?> configs, boolean isKey, Map<Pattern, T> delegates2,
+	protected @Nullable T instantiateAndConfigure(Map<String, ?> configs, boolean isKey, Map<Pattern, T> delegates2,
 			@Nullable Pattern pattern, Class<?> clazz) {
 
 		if (pattern != null && !this.patterns.add(pattern.pattern())) {

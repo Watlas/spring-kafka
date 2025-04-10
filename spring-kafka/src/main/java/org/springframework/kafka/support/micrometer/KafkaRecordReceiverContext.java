@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-2024 the original author or authors.
+ * Copyright 2022-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,8 +22,7 @@ import java.util.function.Supplier;
 import io.micrometer.observation.transport.ReceiverContext;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.Header;
-
-import org.springframework.lang.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * {@link ReceiverContext} for {@link ConsumerRecord}s.
@@ -39,9 +38,9 @@ public class KafkaRecordReceiverContext extends ReceiverContext<ConsumerRecord<?
 
 	private final String listenerId;
 
-	private final String clientId;
+	private final @Nullable String clientId;
 
-	private final String groupId;
+	private final @Nullable String groupId;
 
 	private final ConsumerRecord<?, ?> record;
 
@@ -64,8 +63,9 @@ public class KafkaRecordReceiverContext extends ReceiverContext<ConsumerRecord<?
 	 * @param clusterId		the kafka cluster id.
 	 * @since 3.2
 	 */
-	public KafkaRecordReceiverContext(ConsumerRecord<?, ?> record, String listenerId, String clientId, String groupId,
-			Supplier<String> clusterId) {
+	@SuppressWarnings("this-escape")
+	public KafkaRecordReceiverContext(ConsumerRecord<?, ?> record, String listenerId, @Nullable String clientId,
+			@Nullable String groupId, Supplier<String> clusterId) {
 		super((carrier, key) -> {
 			Header header = carrier.headers().lastHeader(key);
 			if (header == null || header.value() == null) {
@@ -95,7 +95,7 @@ public class KafkaRecordReceiverContext extends ReceiverContext<ConsumerRecord<?
 	 * @return the consumer group id.
 	 * @since 3.2
 	 */
-	public String getGroupId() {
+	public @Nullable String getGroupId() {
 		return this.groupId;
 	}
 

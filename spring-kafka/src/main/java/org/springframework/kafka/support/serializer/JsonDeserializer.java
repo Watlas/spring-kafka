@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2024 the original author or authors.
+ * Copyright 2015-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,8 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -35,6 +37,7 @@ import com.fasterxml.jackson.databind.type.TypeFactory;
 import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.Deserializer;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.ResolvableType;
 import org.springframework.kafka.support.JacksonUtils;
@@ -42,7 +45,6 @@ import org.springframework.kafka.support.mapping.AbstractJavaTypeMapper;
 import org.springframework.kafka.support.mapping.DefaultJackson2JavaTypeMapper;
 import org.springframework.kafka.support.mapping.Jackson2JavaTypeMapper;
 import org.springframework.kafka.support.mapping.Jackson2JavaTypeMapper.TypePrecedence;
-import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
@@ -64,6 +66,7 @@ import org.springframework.util.StringUtils;
  * @author Elliot Kennedy
  * @author Torsten Schleede
  * @author Ivan Ponomarev
+ * @author Omer Celik
  */
 public class JsonDeserializer<T> implements Deserializer<T> {
 
@@ -126,11 +129,11 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 
 	protected final ObjectMapper objectMapper; // NOSONAR
 
-	protected JavaType targetType; // NOSONAR
+	protected @Nullable JavaType targetType; // NOSONAR
 
 	protected Jackson2JavaTypeMapper typeMapper = new DefaultJackson2JavaTypeMapper(); // NOSONAR
 
-	private ObjectReader reader;
+	private @Nullable ObjectReader reader;
 
 	private boolean typeMapperExplicitlySet = false;
 
@@ -138,11 +141,13 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 
 	private boolean useTypeHeaders = true;
 
-	private JsonTypeResolver typeResolver;
+	private @Nullable JsonTypeResolver typeResolver;
 
 	private boolean setterCalled;
 
 	private boolean configured;
+
+	private final Lock trustedPackagesLock = new ReentrantLock();
 
 	/**
 	 * Construct an instance with a default {@link ObjectMapper}.
@@ -206,7 +211,7 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	 * type if not.
 	 * @since 2.3
 	 */
-	public JsonDeserializer(TypeReference<? super T> targetType, boolean useHeadersIfPresent) {
+	public JsonDeserializer(@Nullable TypeReference<? super T> targetType, boolean useHeadersIfPresent) {
 		this(targetType, JacksonUtils.enhancedObjectMapper(), useHeadersIfPresent);
 	}
 
@@ -218,7 +223,7 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	 * type if not.
 	 * @since 2.3
 	 */
-	public JsonDeserializer(JavaType targetType, boolean useHeadersIfPresent) {
+	public JsonDeserializer(@Nullable JavaType targetType, boolean useHeadersIfPresent) {
 		this(targetType, JacksonUtils.enhancedObjectMapper(), useHeadersIfPresent);
 	}
 
@@ -245,7 +250,7 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	 * @param targetType the target java type to use if no type info headers are present.
 	 * @param objectMapper the mapper. type if not.
 	 */
-	public JsonDeserializer(JavaType targetType, ObjectMapper objectMapper) {
+	public JsonDeserializer(@Nullable JavaType targetType, ObjectMapper objectMapper) {
 		this(targetType, objectMapper, true);
 	}
 
@@ -286,7 +291,7 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	 * type if not.
 	 * @since 2.3
 	 */
-	public JsonDeserializer(TypeReference<? super T> targetType, ObjectMapper objectMapper,
+	public JsonDeserializer(@Nullable TypeReference<? super T> targetType, ObjectMapper objectMapper,
 			boolean useHeadersIfPresent) {
 
 		this(targetType != null ? TypeFactory.defaultInstance().constructType(targetType) : null,
@@ -397,29 +402,35 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	}
 
 	@Override
-	public synchronized void configure(Map<String, ?> configs, boolean isKey) {
-		if (this.configured) {
-			return;
+	public void configure(Map<String, ?> configs, boolean isKey) {
+		try {
+			this.trustedPackagesLock.lock();
+			if (this.configured) {
+				return;
+			}
+			Assert.state(!this.setterCalled || !configsHasOurKeys(configs),
+					"JsonDeserializer must be configured with property setters, or via configuration properties; not both");
+			doSetUseTypeMapperForKey(isKey);
+			setUpTypePrecedence(configs);
+			setupTarget(configs, isKey);
+			if (configs.containsKey(TRUSTED_PACKAGES)
+					&& configs.get(TRUSTED_PACKAGES) instanceof String) {
+				this.typeMapper.addTrustedPackages(
+						StringUtils.delimitedListToStringArray((String) configs.get(TRUSTED_PACKAGES), ",", " \r\n\f\t"));
+			}
+			if (configs.containsKey(TYPE_MAPPINGS) && !this.typeMapperExplicitlySet
+					&& this.typeMapper instanceof AbstractJavaTypeMapper) {
+				((AbstractJavaTypeMapper) this.typeMapper).setIdClassMapping(createMappings(configs));
+			}
+			if (configs.containsKey(REMOVE_TYPE_INFO_HEADERS)) {
+				this.removeTypeHeaders = Boolean.parseBoolean(configs.get(REMOVE_TYPE_INFO_HEADERS).toString());
+			}
+			setUpTypeMethod(configs, isKey);
+			this.configured = true;
 		}
-		Assert.state(!this.setterCalled || !configsHasOurKeys(configs),
-				"JsonDeserializer must be configured with property setters, or via configuration properties; not both");
-		doSetUseTypeMapperForKey(isKey);
-		setUpTypePrecedence(configs);
-		setupTarget(configs, isKey);
-		if (configs.containsKey(TRUSTED_PACKAGES)
-				&& configs.get(TRUSTED_PACKAGES) instanceof String) {
-			this.typeMapper.addTrustedPackages(
-					StringUtils.delimitedListToStringArray((String) configs.get(TRUSTED_PACKAGES), ",", " \r\n\f\t"));
+		finally {
+			this.trustedPackagesLock.unlock();
 		}
-		if (configs.containsKey(TYPE_MAPPINGS) && !this.typeMapperExplicitlySet
-				&& this.typeMapper instanceof AbstractJavaTypeMapper) {
-			((AbstractJavaTypeMapper) this.typeMapper).setIdClassMapping(createMappings(configs));
-		}
-		if (configs.containsKey(REMOVE_TYPE_INFO_HEADERS)) {
-			this.removeTypeHeaders = Boolean.parseBoolean(configs.get(REMOVE_TYPE_INFO_HEADERS).toString());
-		}
-		setUpTypeMethod(configs, isKey);
-		this.configured = true;
 	}
 
 	private boolean configsHasOurKeys(Map<String, ?> configs) {
@@ -431,6 +442,7 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 		return false;
 	}
 
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
 	private Map<String, Class<?>> createMappings(Map<String, ?> configs) {
 		Map<String, Class<?>> mappings =
 				JsonSerializer.createMappings(configs.get(JsonSerializer.TYPE_MAPPINGS).toString());
@@ -522,9 +534,15 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	 * @param packages the packages.
 	 * @since 2.1
 	 */
-	public synchronized void addTrustedPackages(String... packages) {
-		doAddTrustedPackages(packages);
-		this.setterCalled = true;
+	public void addTrustedPackages(String... packages) {
+		try {
+			this.trustedPackagesLock.lock();
+			doAddTrustedPackages(packages);
+			this.setterCalled = true;
+		}
+		finally {
+			this.trustedPackagesLock.unlock();
+		}
 	}
 
 	private void addMappingsToTrusted(Map<String, Class<?>> mappings) {
@@ -545,7 +563,7 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 		}
 	}
 
-	private String getTargetPackageName() {
+	private @Nullable String getTargetPackageName() {
 		if (this.targetType != null) {
 			return ClassUtils.getPackageName(this.targetType.getRawClass()).replaceFirst("\\[L", "");
 		}
@@ -557,7 +575,7 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	}
 
 	@Override
-	public T deserialize(String topic, Headers headers, byte[] data) {
+	public @Nullable T deserialize(String topic, Headers headers, byte[] data) {
 		if (data == null) {
 			return null;
 		}
@@ -588,7 +606,7 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	}
 
 	@Override
-	public T deserialize(String topic, @Nullable byte[] data) {
+	public @Nullable T deserialize(String topic, byte[] data) {
 		if (data == null) {
 			return null;
 		}
@@ -704,10 +722,16 @@ public class JsonDeserializer<T> implements Deserializer<T> {
 	 * @return the deserializer.
 	 * @since 2,5
 	 */
-	public synchronized JsonDeserializer<T> trustedPackages(String... packages) {
-		Assert.isTrue(!this.typeMapperExplicitlySet, "When using a custom type mapper, set the trusted packages there");
-		this.typeMapper.addTrustedPackages(packages);
-		return this;
+	public JsonDeserializer<T> trustedPackages(String... packages) {
+		try {
+			this.trustedPackagesLock.lock();
+			Assert.isTrue(!this.typeMapperExplicitlySet, "When using a custom type mapper, set the trusted packages there");
+			this.typeMapper.addTrustedPackages(packages);
+			return this;
+		}
+		finally {
+			this.trustedPackagesLock.unlock();
+		}
 	}
 
 	/**

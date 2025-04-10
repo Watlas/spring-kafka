@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2024 the original author or authors.
+ * Copyright 2018-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,15 +24,16 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.apache.commons.logging.LogFactory;
 import org.apache.kafka.common.header.Header;
+import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.log.LogAccessor;
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
@@ -250,6 +251,7 @@ public abstract class AbstractKafkaHeaderMapper implements KafkaHeaderMapper {
 		return valueToAdd;
 	}
 
+	@SuppressWarnings("NullAway") // Dataflow analysis limitation
 	@Nullable
 	private byte[] mapRawOut(String header, Object value) {
 		if (this.mapAllStringsOut || this.rawMappedHeaders.containsKey(header)) {
@@ -268,7 +270,7 @@ public abstract class AbstractKafkaHeaderMapper implements KafkaHeaderMapper {
 	 * @param header the header.
 	 * @return the value to add.
 	 */
-	protected Object headerValueToAddIn(Header header) {
+	protected @Nullable Object headerValueToAddIn(@Nullable Header header) {
 		if (header == null || header.value() == null) {
 			return null;
 		}
@@ -352,13 +354,13 @@ public abstract class AbstractKafkaHeaderMapper implements KafkaHeaderMapper {
 
 		SimplePatternBasedHeaderMatcher(String pattern, boolean negate) {
 			Assert.notNull(pattern, "Pattern must no be null");
-			this.pattern = pattern.toLowerCase();
+			this.pattern = pattern.toLowerCase(Locale.ROOT);
 			this.negate = negate;
 		}
 
 		@Override
 		public boolean matchHeader(String headerName) {
-			String header = headerName.toLowerCase();
+			String header = headerName.toLowerCase(Locale.ROOT);
 			if (PatternMatchUtils.simpleMatch(this.pattern, header)) {
 				LOGGER.debug(() ->
 						MessageFormat.format(

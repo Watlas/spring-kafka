@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2019 the original author or authors.
+ * Copyright 2016-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.jspecify.annotations.Nullable;
+
+import org.springframework.util.Assert;
 import org.springframework.util.ReflectionUtils;
 
 /**
@@ -52,6 +55,7 @@ public final class ContainerTestUtils {
 			return;
 		}
 		List<?> containers = KafkaTestUtils.getPropertyValue(container, "containers", List.class);
+		Assert.notNull(containers, "Containers must not be null");
 		int n = 0;
 		int count = 0;
 		Method getAssignedPartitions = null;
@@ -117,14 +121,13 @@ public final class ContainerTestUtils {
 	}
 
 	private static Method getAssignedPartitionsMethod(Class<?> clazz) {
-		final AtomicReference<Method> theMethod = new AtomicReference<Method>();
+		final AtomicReference<@Nullable Method> theMethod = new AtomicReference<>();
 		ReflectionUtils.doWithMethods(clazz,
-				method -> theMethod.set(method),
+				theMethod::set,
 				method -> method.getName().equals("getAssignedPartitions") && method.getParameterTypes().length == 0);
-		if (theMethod.get() == null) {
-			throw new IllegalStateException(clazz + " has no getAssignedPartitions() method");
-		}
-		return theMethod.get();
+		Method method = theMethod.get();
+		Assert.state(method != null, "No getAssignedPartitions() method");
+		return method;
 	}
 
 	private static class ContainerTestUtilsException extends RuntimeException {
